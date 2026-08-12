@@ -5,7 +5,7 @@ from pathlib import Path
 from unittest.mock import patch
 from uuid import uuid4
 
-from backend.domain.models import Need, NeedStatus, PublicHelpPoint
+from backend.domain.models import HelpPointCategory, Need, NeedStatus, PublicHelpPoint
 from frontend.pages import home
 from frontend.pages.home import (
     affected_area_text,
@@ -169,7 +169,7 @@ class PublicHelpPointFilteringTests(unittest.TestCase):
         active: bool,
         category_id,
     ) -> PublicHelpPoint:
-        return PublicHelpPoint(
+        return PublicHelpPoint(category=HelpPointCategory.RESCUE_OPERATIONS,
             id=uuid4(),
             name=name,
             description="Se requiere apoyo.",
@@ -227,7 +227,7 @@ class PublicHelpPointFilteringTests(unittest.TestCase):
 class AffectedAreaTextTests(unittest.TestCase):
     @staticmethod
     def point(*, affected_city: str | None) -> PublicHelpPoint:
-        return PublicHelpPoint(
+        return PublicHelpPoint(category=HelpPointCategory.RESCUE_OPERATIONS,
             id=uuid4(),
             name="Parque Central",
             description="Se requiere apoyo.",
@@ -479,14 +479,14 @@ class HomeResponsivePresentationTests(unittest.TestCase):
 
     def test_initial_map_and_compact_list_use_active_points_and_public_detail_links(self) -> None:
         category_id = uuid4()
-        active = PublicHelpPoint(
+        active = PublicHelpPoint(category=HelpPointCategory.RESCUE_OPERATIONS,
             id=uuid4(), name="Parque", description="Apoyo", city="Cali",
             department="Valle del Cauca", address="Calle 5 # 10-20",
             affected_city="Roldanillo", affected_department="Valle del Cauca",
             latitude=3.4, longitude=-76.5, coordinator_name="Ana", coordinator_contact="Contacto", active=True,
             needs=(Need(id=uuid4(), category_id=category_id, status=NeedStatus.NEEDS_HELP),),
         )
-        inactive = PublicHelpPoint(
+        inactive = PublicHelpPoint(category=HelpPointCategory.RESCUE_OPERATIONS,
             id=uuid4(), name="Cerrado", description="Cerrado", city="Bogotá",
             department="Cundinamarca", address=None,
             affected_city="Armenia", affected_department="Quindío",
@@ -526,10 +526,11 @@ class HomeResponsivePresentationTests(unittest.TestCase):
             "Recibe ayuda en: Calle 5 # 10-20, Cali, Valle del Cauca",
             labels,
         )
+        self.assertIn("Labores de rescate", labels)
 
     def test_result_row_shows_whole_department_when_affected_city_is_none(self) -> None:
         category_id = uuid4()
-        department_wide = PublicHelpPoint(
+        department_wide = PublicHelpPoint(category=HelpPointCategory.RESCUE_OPERATIONS,
             id=uuid4(), name="Parque", description="Apoyo", city="Cali",
             department="Valle del Cauca", address="Calle 5 # 10-20",
             affected_city=None, affected_department="Valle del Cauca",
@@ -617,7 +618,7 @@ class HomeResponsivePresentationTests(unittest.TestCase):
             ("Urgente A", NeedStatus.NEEDS_HELP),
         ]
         category_ids = [uuid4() for _ in need_specs]
-        point = PublicHelpPoint(
+        point = PublicHelpPoint(category=HelpPointCategory.RESCUE_OPERATIONS,
             id=uuid4(), name="Parque", description="Apoyo", city="Cali",
             department="Valle del Cauca", address="Calle 5 # 10-20",
             affected_city="Roldanillo", affected_department="Valle del Cauca",
@@ -684,7 +685,7 @@ class HomeResponsivePresentationTests(unittest.TestCase):
         category_id = uuid4()
 
         def point(name, city, department, affected_city, affected_department):
-            return PublicHelpPoint(
+            return PublicHelpPoint(category=HelpPointCategory.RESCUE_OPERATIONS,
                 id=uuid4(), name=name, description="Apoyo", city=city,
                 department=department, address="Calle 5",
                 affected_city=affected_city,

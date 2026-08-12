@@ -144,6 +144,7 @@ class PublicHelpPoint:
     coordinator_contact: str
     active: bool
     needs: tuple[Need, ...]
+    category: HelpPointCategory
     updated_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     additional_affected_areas: str | None = None
     important_links: tuple[str, ...] = ()

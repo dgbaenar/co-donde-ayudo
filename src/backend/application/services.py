@@ -257,6 +257,7 @@ class HelpPointService:
             coordinator_contact=point.coordinator_contact,
             active=point.active,
             needs=tuple(replace(need, commitments=()) for need in point.needs),
+            category=point.category,
             updated_at=point.updated_at,
             additional_affected_areas=point.additional_affected_areas,
             important_links=point.important_links,
