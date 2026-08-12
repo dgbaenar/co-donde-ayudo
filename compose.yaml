@@ -1,0 +1,19 @@
+services:
+  postgres:
+    image: postgres:18.4-alpine3.23
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-donde_ayudo}
+      POSTGRES_USER: ${POSTGRES_USER:-donde_ayudo}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-donde_ayudo_local}
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 2s
+      timeout: 5s
+      retries: 15
+    volumes:
+      - postgres_data:/var/lib/postgresql
+
+volumes:
+  postgres_data:
