@@ -7,10 +7,12 @@ from uuid import UUID
 
 from nicegui import ui
 
-from backend.domain.models import PublicHelpPoint
+from backend.domain.models import HelpPointCategory, PublicHelpPoint
 from frontend.components.help_point_map import (
     describe_affected_areas,
+    format_relative_time,
     format_short_date,
+    format_short_datetime,
     render_help_point_map,
     status_line,
 )
@@ -18,14 +20,35 @@ from frontend.components.help_point_map import (
 ListDepartments = Callable[[], Sequence[str]]
 ListLocalities = Callable[[str], Sequence[str]]
 
+_CATEGORY_BADGE_CLASSES: dict[HelpPointCategory, str] = {
+    HelpPointCategory.DONATION_COLLECTION: "text-emerald-800 bg-emerald-50 border-emerald-200",
+    HelpPointCategory.DEBRIS_REMOVAL: "text-amber-800 bg-amber-50 border-amber-200",
+    HelpPointCategory.RESCUE_OPERATIONS: "text-red-800 bg-red-50 border-red-200",
+    HelpPointCategory.PSYCHOLOGICAL_SUPPORT: "text-violet-800 bg-violet-50 border-violet-200",
+    HelpPointCategory.MEDICAL_CARE: "text-sky-800 bg-sky-50 border-sky-200",
+    HelpPointCategory.HOUSING_AND_SHELTER: "text-orange-800 bg-orange-50 border-orange-200",
+    HelpPointCategory.COMMUNITY_FOOD: "text-lime-800 bg-lime-50 border-lime-200",
+    HelpPointCategory.VOLUNTEERING: "text-indigo-800 bg-indigo-50 border-indigo-200",
+    HelpPointCategory.BLOOD_DONATION: "text-rose-800 bg-rose-50 border-rose-200",
+}
+
+
+def category_badge_classes(category: HelpPointCategory) -> str:
+    """Return the badge color classes for a point's category, one per category."""
+    colors = _CATEGORY_BADGE_CLASSES[category]
+    return (
+        f"text-xs font-medium {colors} border rounded-full px-2 py-0.5 self-start"
+    )
+
 
 def filter_public_help_points(
     points: Sequence[PublicHelpPoint],
     *,
     city: str = "",
     department: str = "",
+    category: HelpPointCategory | str = "",
 ) -> tuple[PublicHelpPoint, ...]:
-    """Return active points matching the two public location filters."""
+    """Return active points matching the public location and category filters."""
     return tuple(
         point
         for point in points
@@ -38,12 +61,21 @@ def filter_public_help_points(
             not department
             or any(area.department == department for area in point.affected_areas)
         )
+        and (not category or point.category == category)
     )
 
 
 def affected_area_text(point: PublicHelpPoint) -> str:
     """Describe every affected area, grouped by department."""
     return describe_affected_areas(point.affected_areas)
+
+
+def freshness_text(point: PublicHelpPoint) -> str:
+    """Describe how recently the point was updated, relative or absolute."""
+    relative = format_relative_time(point.updated_at)
+    if relative:
+        return f"Actualizado {relative}"
+    return f"Actualizado el {format_short_datetime(point.updated_at)}"
 
 
 def location_filter_options(
@@ -77,6 +109,12 @@ def render_home(
             **{value: value for value in values},
         }
 
+    def point_category_options() -> dict[HelpPointCategory | str, str]:
+        return {
+            "": "Todas las categorías",
+            **{category: category.value for category in HelpPointCategory},
+        }
+
     def empty_city_options() -> dict[str, str]:
         return {"": "Selecciona primero un departamento"}
 
@@ -94,6 +132,7 @@ def render_home(
             active_points,
             city=city.value or "",
             department=department.value or "",
+            category=point_category.value or "",
         )
         map_container.clear()
         with map_container:
@@ -107,8 +146,8 @@ def render_home(
                 ui.label("Todavía no hay puntos de ayuda activos.")
             elif not filtered_points:
                 ui.label(
-                    "No encontramos puntos en esta ubicación. "
-                    "Prueba con otro departamento o ciudad / municipio."
+                    "No encontramos puntos con estos filtros. "
+                    "Prueba con otro departamento, ciudad / municipio o categoría."
                 )
             for point in filtered_points:
                 status_priority = {
@@ -133,9 +172,13 @@ def render_home(
                         )
                         with ui.column().classes("flex-1 min-w-0 gap-1"):
                             ui.label(point.name).classes("font-semibold text-slate-900")
+                            ui.label(freshness_text(point)).classes(
+                                "text-sm font-bold text-emerald-700 bg-emerald-50 "
+                                "border border-emerald-200 rounded-full px-3 py-1 "
+                                "self-start whitespace-nowrap"
+                            )
                             ui.label(point.category.value).classes(
-                                "text-xs font-medium text-emerald-800 bg-emerald-50 "
-                                "border border-emerald-200 rounded-full px-2 py-0.5 self-start"
+                                category_badge_classes(point.category)
                             )
                             ui.label(
                                 f"Ayuda destinada a: {affected_area_text(point)}"
@@ -240,7 +283,7 @@ def render_home(
                     ui.icon("filter_alt").classes("text-slate-700").props(
                         "aria-hidden=true"
                     )
-                    ui.label("Filtrar por zona afectada").classes(
+                    ui.label("Filtros").classes(
                         "text-sm font-semibold text-slate-800"
                     )
                 with ui.row().classes(
@@ -271,6 +314,18 @@ def render_home(
                         'popup-content-style="max-height: 40vh !important; overflow-y: auto"'
                     )
                     city.disable()
+                    point_category = ui.select(
+                        options=point_category_options(),
+                        value="",
+                        label="Categoría del punto",
+                        on_change=refresh,
+                    ).classes(
+                        "w-full sm:w-auto sm:flex-1 sm:min-w-0 bg-white rounded-lg"
+                    ).props(
+                        'outlined dense behavior=menu color=blue-grey-9 '
+                        'popup-content-class=bounded-select-menu '
+                        'popup-content-style="max-height: 40vh !important; overflow-y: auto"'
+                    )
             with ui.grid().classes(
                 "w-full grid-cols-1 lg:grid-cols-[3fr_2fr] gap-4 items-start"
             ):

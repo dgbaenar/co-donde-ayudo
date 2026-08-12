@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable, Mapping
-from datetime import UTC, datetime
+from datetime import datetime
 from uuid import UUID
 
 from nicegui import ui
@@ -12,6 +12,7 @@ from nicegui import ui
 from backend.domain.models import Need, NeedStatus, PublicHelpPoint
 from frontend.components.help_point_map import (
     describe_affected_areas,
+    format_relative_time,
     format_short_date,
     render_help_point_map,
     status_line,
@@ -45,25 +46,12 @@ def commitment_count_text(count: int) -> str | None:
 
 def render_updated_at(updated_at: datetime) -> None:
     """Show a relative or absolute last-updated timestamp."""
-    now = datetime.now(UTC)
-    delta = now - updated_at
-    if delta.total_seconds() < 60:
-        label = "Actualizado hace menos de un minuto"
-    elif delta.total_seconds() < 3600:
-        minutes = int(delta.total_seconds() // 60)
-        label = f"Actualizado hace {minutes} minuto{'s' if minutes != 1 else ''}"
-    elif delta.total_seconds() < 86400:
-        hours = int(delta.total_seconds() // 3600)
-        label = f"Actualizado hace {hours} hora{'s' if hours != 1 else ''}"
-    else:
-        months = [
-            "ene", "feb", "mar", "abr", "may", "jun",
-            "jul", "ago", "sep", "oct", "nov", "dic",
-        ]
-        label = (
-            f"Actualizado el {updated_at.day} "
-            f"{months[updated_at.month - 1]} {updated_at.year}"
-        )
+    relative = format_relative_time(updated_at)
+    label = (
+        f"Actualizado {relative}"
+        if relative
+        else f"Actualizado el {format_short_date(updated_at)}"
+    )
     ui.label(label).classes("text-xs text-slate-400 mt-1")
 
 

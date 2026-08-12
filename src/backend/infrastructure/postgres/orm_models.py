@@ -14,7 +14,7 @@ class Base(DeclarativeBase):
 
 class HelpPointRow(Base):
     __tablename__ = "help_points"
-    __table_args__ = (CheckConstraint("char_length(nombre) between 1 and 120"), CheckConstraint("char_length(descripcion) between 1 and 1000"), CheckConstraint("zonas_adicionales is null or char_length(zonas_adicionales) between 1 and 500", name="help_points_zonas_adicionales_check"), CheckConstraint("categoria in ('Recolección de donaciones', 'Remoción de escombros', 'Labores de rescate')", name="help_points_categoria_check"), CheckConstraint("char_length(nombre_coordinador) between 1 and 120"), CheckConstraint("char_length(contacto_coordinador) between 1 and 240"), CheckConstraint("char_length(admin_token) >= 40"))
+    __table_args__ = (CheckConstraint("char_length(nombre) between 1 and 120"), CheckConstraint("char_length(descripcion) between 1 and 1000"), CheckConstraint("zonas_adicionales is null or char_length(zonas_adicionales) between 1 and 500", name="help_points_zonas_adicionales_check"), CheckConstraint("categoria in ('Recolección de donaciones', 'Remoción de escombros', 'Labores de rescate', 'Psicológica', 'Médica', 'Vivienda y Albergues', 'Alimentación Comunitaria', 'Voluntariado', 'Donación de sangre')", name="help_points_categoria_check"), CheckConstraint("char_length(nombre_coordinador) between 1 and 120"), CheckConstraint("char_length(contacto_coordinador) between 1 and 240"), CheckConstraint("char_length(admin_token) >= 40"))
     id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, nullable=False)
     nombre: Mapped[str] = mapped_column(String(120), nullable=False)
     descripcion: Mapped[str] = mapped_column(Text, nullable=False)

@@ -10,14 +10,18 @@ from uuid import UUID
 from nicegui import ui
 
 from backend.domain.models import (
+    AffectedArea,
     HelpPoint,
     HelpPointCategory,
     NeedStatus,
     NewHelpPointLocation,
 )
 from frontend.components.location_picker import render_location_picker
+from frontend.pages.create_help_point import GeocodeAddress
 
 logger = logging.getLogger(__name__)
+
+_LOW_CONFIDENCE_ADDRESS_MESSAGE = "Toca el mapa para ubicar el punto correctamente."
 
 
 AddNeedHandler = Callable[[HelpPoint, str, UUID], HelpPoint]
@@ -29,6 +33,9 @@ UpdateHelpPointCategoryHandler = Callable[[HelpPoint, str, HelpPointCategory], H
 UpdateHelpPointLinksHandler = Callable[[HelpPoint, str, tuple[str, ...]], HelpPoint]
 UpdateHelpPointLocationsHandler = Callable[
     [HelpPoint, str, tuple[NewHelpPointLocation, ...]], HelpPoint
+]
+UpdateHelpPointAffectedAreasHandler = Callable[
+    [HelpPoint, str, tuple[AffectedArea, ...]], HelpPoint
 ]
 
 
@@ -133,6 +140,15 @@ def update_point_locations(
     return update_help_point_locations(point, admin_token, tuple(locations))
 
 
+def update_point_affected_areas(
+    point: HelpPoint,
+    admin_token: str,
+    affected_areas: Sequence[AffectedArea],
+    update_help_point_affected_areas: UpdateHelpPointAffectedAreasHandler,
+) -> HelpPoint:
+    return update_help_point_affected_areas(point, admin_token, tuple(affected_areas))
+
+
 def render_manage_help_point(
     point: HelpPoint,
     admin_token: str,
@@ -145,6 +161,8 @@ def render_manage_help_point(
     update_help_point_category: UpdateHelpPointCategoryHandler,
     update_help_point_links: UpdateHelpPointLinksHandler,
     update_help_point_locations: UpdateHelpPointLocationsHandler,
+    update_help_point_affected_areas: UpdateHelpPointAffectedAreasHandler,
+    geocode_address: GeocodeAddress,
 ) -> None:
     """Render administration controls using injected backend operations only."""
     with ui.column().classes("w-full max-w-md md:max-w-2xl mx-auto gap-4 p-4"):
@@ -351,6 +369,49 @@ def render_manage_help_point(
                                     location.set_coordinates(
                                         existing.latitude, existing.longitude
                                     )
+
+                                async def search_address() -> None:
+                                    address_value = (address_input.value or "").strip()
+                                    city_value = city_input.value or ""
+                                    department_value = department_input.value or ""
+                                    if (
+                                        not address_value
+                                        or not city_value
+                                        or not department_value
+                                    ):
+                                        ui.notify(
+                                            "Completa departamento, ciudad / "
+                                            "municipio y dirección.",
+                                            type="negative",
+                                        )
+                                        return
+                                    try:
+                                        geocoded = await geocode_address(
+                                            address_value, city_value, department_value
+                                        )
+                                    except Exception:
+                                        geocoded = None
+                                    if geocoded is None:
+                                        ui.notify(
+                                            "No encontramos esa dirección. "
+                                            "Ubícala tocando el mapa.",
+                                            type="negative",
+                                        )
+                                        return
+                                    location.set_coordinates(
+                                        geocoded.latitude, geocoded.longitude
+                                    )
+                                    if geocoded.is_low_confidence:
+                                        ui.notify(
+                                            _LOW_CONFIDENCE_ADDRESS_MESSAGE,
+                                            type="warning",
+                                        )
+
+                                address_input.on("keydown.enter", search_address)
+                                ui.button(
+                                    "Buscar en el mapa", on_click=search_address
+                                ).classes("w-full min-h-[44px]")
+
                                 block = {
                                     "card": block_card,
                                     "address": address_input,
@@ -417,6 +478,94 @@ def render_manage_help_point(
 
                     ui.button(
                         "Guardar ubicaciones", on_click=save_locations
+                    ).classes("w-full min-h-[44px]").props(
+                        "unelevated color=primary"
+                    )
+
+                with ui.card().classes(
+                    "w-full gap-3 rounded-2xl border border-slate-200 bg-white p-4"
+                ):
+                    ui.label("Zonas afectadas").classes(
+                        "text-lg font-semibold text-slate-900"
+                    ).props("role=heading aria-level=2")
+
+                    areas_container = ui.column().classes("w-full gap-2")
+                    area_blocks: list[dict] = []
+
+                    def render_area_block(existing=None) -> dict:
+                        with areas_container:
+                            with ui.card().classes(
+                                "w-full gap-2 rounded-xl border border-slate-200 p-3"
+                            ) as area_card:
+                                area_department = ui.input(
+                                    "Departamento afectado",
+                                    value=(existing.department if existing else "")
+                                    or "",
+                                ).classes("w-full")
+                                area_city = ui.input(
+                                    "Ciudad / Municipio afectado (vacío = todo "
+                                    "el departamento)",
+                                    value=(existing.city if existing else "") or "",
+                                ).classes("w-full")
+                                area = {
+                                    "card": area_card,
+                                    "department": area_department,
+                                    "city": area_city,
+                                }
+                                area_blocks.append(area)
+
+                                def remove_area() -> None:
+                                    area_blocks.remove(area)
+                                    area_card.visible = False
+
+                                ui.button(
+                                    "Quitar", on_click=remove_area
+                                ).classes("min-h-[44px] w-full").props(
+                                    "flat color=red-9"
+                                )
+
+                                return area
+
+                    for existing_area in point.affected_areas:
+                        render_area_block(existing_area)
+
+                    ui.button(
+                        "Agregar zona afectada",
+                        on_click=lambda: render_area_block(),
+                    ).classes("w-full min-h-[44px]").props("outline")
+
+                    def save_affected_areas() -> None:
+                        new_areas = []
+                        for area in area_blocks:
+                            department_value = (area["department"].value or "").strip()
+                            if not department_value:
+                                ui.notify(
+                                    "Completa el departamento de cada zona.",
+                                    type="negative",
+                                )
+                                return
+                            city_value = (area["city"].value or "").strip() or None
+                            new_areas.append(
+                                AffectedArea(
+                                    department=department_value, city=city_value
+                                )
+                            )
+                        if not new_areas:
+                            ui.notify(
+                                "Agrega al menos una zona afectada.", type="negative"
+                            )
+                            return
+                        apply(
+                            lambda: update_point_affected_areas(
+                                point,
+                                admin_token,
+                                new_areas,
+                                update_help_point_affected_areas,
+                            )
+                        )
+
+                    ui.button(
+                        "Guardar zonas afectadas", on_click=save_affected_areas
                     ).classes("w-full min-h-[44px]").props(
                         "unelevated color=primary"
                     )

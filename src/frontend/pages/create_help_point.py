@@ -366,6 +366,7 @@ def render_create_help_point(
                                     _LOW_CONFIDENCE_ADDRESS_MESSAGE, type="warning"
                                 )
 
+                        block_address.on("keydown.enter", search_address)
                         ui.button(
                             "Buscar en el mapa", on_click=search_address
                         ).classes("w-full min-h-[44px]")
@@ -563,6 +564,9 @@ def render_create_help_point(
                             "w-full min-h-[44px]"
                         )
                         ui.link("Abrir administración", admin_url).classes(
+                            "w-full min-h-[44px] flex items-center justify-center"
+                        )
+                        ui.link("Volver al inicio", "/").classes(
                             "w-full min-h-[44px] flex items-center justify-center"
                         )
                     success_container.visible = True

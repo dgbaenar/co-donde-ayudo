@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import asyncio
 import unittest
 from datetime import UTC, datetime
+from types import SimpleNamespace
+from unittest.mock import patch
 from uuid import uuid4
 
 from backend.domain.models import (
@@ -35,10 +38,14 @@ class RecordingElement:
         self.classes_value = ""
         self.props_value = ""
         self.children = []
+        self.handlers = {}
     def __enter__(self): self.ui.context.append(self); return self
     def __exit__(self, *_args): self.ui.context.pop(); return False
     def classes(self, value): self.classes_value = value; return self
     def props(self, value): self.props_value = value; return self
+    def on(self, event_name, handler, *_args, **_kwargs):
+        self.handlers[event_name] = handler
+        return self
     def clear(self):
         removed = set(descendants(self))
         self.ui.elements[:] = [
@@ -355,6 +362,8 @@ class ManageHelpPointInfoEditingTests(unittest.TestCase):
             lambda *_args: self.point,
             lambda *_args: self.point,
             lambda *_args: self.point,
+            lambda *_args: None,
+            lambda *_args: None,
         )
 
         self.assertEqual(self._additional_areas_field().value, "Zarzal")
@@ -372,6 +381,8 @@ class ManageHelpPointInfoEditingTests(unittest.TestCase):
             lambda *_args: self.point,
             lambda *_args: self.point,
             lambda *_args: self.point,
+            lambda *_args: None,
+            lambda *_args: None,
         )
 
         name_field = next(
@@ -395,6 +406,8 @@ class ManageHelpPointInfoEditingTests(unittest.TestCase):
             lambda *_args: self.point,
             lambda *_args: self.point,
             lambda *_args: self.point,
+            lambda *_args: None,
+            lambda *_args: None,
         )
 
         description_field = next(
@@ -434,6 +447,8 @@ class ManageHelpPointInfoEditingTests(unittest.TestCase):
             lambda *_args: point_without_extra_areas,
             lambda *_args: point_without_extra_areas,
             lambda *_args: point_without_extra_areas,
+            lambda *_args: None,
+            lambda *_args: None,
         )
 
         self.assertEqual(self._additional_areas_field().value, "")
@@ -457,6 +472,8 @@ class ManageHelpPointInfoEditingTests(unittest.TestCase):
             lambda *_args: self.point,
             lambda *_args: self.point,
             lambda *_args: self.point,
+            lambda *_args: None,
+            lambda *_args: None,
         )
 
         self._additional_areas_field().value = "Roldanillo y Zarzal"
@@ -497,6 +514,8 @@ class ManageHelpPointInfoEditingTests(unittest.TestCase):
             lambda *_args: self.point,
             lambda *_args: self.point,
             lambda *_args: self.point,
+            lambda *_args: None,
+            lambda *_args: None,
         )
 
         self._additional_areas_field().value = ""
@@ -551,6 +570,8 @@ class ManageHelpPointLinksEditingTests(unittest.TestCase):
             lambda *_args: self.point,
             update_links,
             lambda *_args: self.point,
+            lambda *_args: None,
+            lambda *_args: None,
         )
 
     def _labels(self) -> list[str]:
@@ -641,6 +662,368 @@ class ManageHelpPointLinksEditingTests(unittest.TestCase):
         self.assertEqual(notifications, ["Ese enlace ya está en la lista."])
 
 
+class ManageHelpPointLocationsEditingTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.token = "private-token"
+        self.point = HelpPoint(
+            id=uuid4(),
+            name="Parque Central",
+            description="Apoyo",
+            locations=(
+                HelpPointLocation(
+                    id=uuid4(),
+                    address="Calle 5 # 10-20",
+                    city="Cali",
+                    department="Valle del Cauca",
+                    latitude=3.4516,
+                    longitude=-76.5320,
+                ),
+            ),
+            affected_areas=(
+                AffectedArea(department="Valle del Cauca", city="Roldanillo"),
+            ),
+            coordinator_name="Ana",
+            coordinator_contact="Contacto local",
+            admin_token=self.token,
+            active=True,
+            needs=(),
+            category=HelpPointCategory.DONATION_COLLECTION,
+            important_links=("https://example.com",),
+        )
+        self.fake_ui = RecordingUi()
+        self.original_ui = manage_help_point.ui
+        manage_help_point.ui = self.fake_ui
+        self.addCleanup(setattr, manage_help_point, "ui", self.original_ui)
+
+    def _render(self, geocode_address) -> None:
+        manage_help_point.render_manage_help_point(
+            self.point,
+            self.token,
+            {},
+            lambda *_args: self.point,
+            lambda *_args: self.point,
+            lambda *_args: self.point,
+            lambda *_args: self.point,
+            lambda *_args: self.point,
+            lambda *_args: self.point,
+            lambda *_args: self.point,
+            lambda *_args: self.point,
+            lambda *_args: self.point,
+            geocode_address,
+        )
+
+    def _address_input(self):
+        return next(
+            element
+            for element in self.fake_ui.elements
+            if element.kind == "input" and element.args == ("Dirección",)
+        )
+
+    def _search_button(self):
+        return next(
+            element
+            for element in self.fake_ui.elements
+            if element.kind == "button" and element.args == ("Buscar en el mapa",)
+        )
+
+    def test_search_button_geocodes_address_and_updates_the_map(self) -> None:
+        geocode_calls = []
+        coordinate_calls = []
+        location = SimpleNamespace(
+            latitude=3.4516,
+            longitude=-76.5320,
+            set_coordinates=lambda latitude, longitude: coordinate_calls.append(
+                (latitude, longitude)
+            ),
+        )
+
+        async def geocode(address, city, department):
+            geocode_calls.append((address, city, department))
+            return SimpleNamespace(
+                latitude=3.4372, longitude=-76.5225, is_low_confidence=False
+            )
+
+        with patch.object(
+            manage_help_point, "render_location_picker", return_value=location
+        ):
+            self._render(geocode)
+            coordinate_calls.clear()
+
+            search = self._search_button()
+            asyncio.run(search.kwargs["on_click"]())
+
+        self.assertEqual(
+            geocode_calls,
+            [("Calle 5 # 10-20", "Cali", "Valle del Cauca")],
+        )
+        self.assertEqual(coordinate_calls, [(3.4372, -76.5225)])
+
+    def test_pressing_enter_in_address_field_triggers_the_same_search(self) -> None:
+        coordinate_calls = []
+        location = SimpleNamespace(
+            latitude=3.4516,
+            longitude=-76.5320,
+            set_coordinates=lambda latitude, longitude: coordinate_calls.append(
+                (latitude, longitude)
+            ),
+        )
+
+        async def geocode(_address, _city, _department):
+            return SimpleNamespace(
+                latitude=3.4372, longitude=-76.5225, is_low_confidence=False
+            )
+
+        with patch.object(
+            manage_help_point, "render_location_picker", return_value=location
+        ):
+            self._render(geocode)
+            coordinate_calls.clear()
+
+            address = self._address_input()
+            asyncio.run(address.handlers["keydown.enter"]())
+
+        self.assertEqual(coordinate_calls, [(3.4372, -76.5225)])
+
+    def test_search_with_incomplete_fields_notifies_without_geocoding(self) -> None:
+        geocode_calls = []
+
+        async def geocode(address, city, department):
+            geocode_calls.append((address, city, department))
+            return SimpleNamespace(latitude=0, longitude=0, is_low_confidence=False)
+
+        location = SimpleNamespace(
+            latitude=3.4516, longitude=-76.5320, set_coordinates=lambda *_args: None
+        )
+        with patch.object(
+            manage_help_point, "render_location_picker", return_value=location
+        ):
+            self._render(geocode)
+
+            self._address_input().value = ""
+            search = self._search_button()
+            asyncio.run(search.kwargs["on_click"]())
+
+        self.assertEqual(geocode_calls, [])
+        notifications = [
+            element.args[0]
+            for element in self.fake_ui.elements
+            if element.kind == "notify"
+        ]
+        self.assertEqual(
+            notifications,
+            ["Completa departamento, ciudad / municipio y dirección."],
+        )
+
+    def test_search_with_no_match_notifies_and_does_not_move_the_pin(self) -> None:
+        coordinate_calls = []
+        location = SimpleNamespace(
+            latitude=3.4516,
+            longitude=-76.5320,
+            set_coordinates=lambda latitude, longitude: coordinate_calls.append(
+                (latitude, longitude)
+            ),
+        )
+
+        async def geocode(_address, _city, _department):
+            return None
+
+        with patch.object(
+            manage_help_point, "render_location_picker", return_value=location
+        ):
+            self._render(geocode)
+            coordinate_calls.clear()
+
+            search = self._search_button()
+            asyncio.run(search.kwargs["on_click"]())
+
+        self.assertEqual(coordinate_calls, [])
+        notifications = [
+            element.args[0]
+            for element in self.fake_ui.elements
+            if element.kind == "notify"
+        ]
+        self.assertEqual(
+            notifications,
+            ["No encontramos esa dirección. Ubícala tocando el mapa."],
+        )
+
+
+class ManageHelpPointAffectedAreasEditingTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.token = "private-token"
+        self.point = HelpPoint(
+            id=uuid4(),
+            name="Parque Central",
+            description="Apoyo",
+            locations=(
+                HelpPointLocation(
+                    id=uuid4(),
+                    address="Calle 5 # 10-20",
+                    city="Cali",
+                    department="Valle del Cauca",
+                    latitude=3.4516,
+                    longitude=-76.5320,
+                ),
+            ),
+            affected_areas=(
+                AffectedArea(department="Valle del Cauca", city="Roldanillo"),
+            ),
+            coordinator_name="Ana",
+            coordinator_contact="Contacto local",
+            admin_token=self.token,
+            active=True,
+            needs=(),
+            category=HelpPointCategory.DONATION_COLLECTION,
+            important_links=("https://example.com",),
+        )
+        self.fake_ui = RecordingUi()
+        self.original_ui = manage_help_point.ui
+        manage_help_point.ui = self.fake_ui
+        self.addCleanup(setattr, manage_help_point, "ui", self.original_ui)
+
+    def _render(
+        self, update_affected_areas=lambda *_args: self.point
+    ) -> None:
+        manage_help_point.render_manage_help_point(
+            self.point,
+            self.token,
+            {},
+            lambda *_args: self.point,
+            lambda *_args: self.point,
+            lambda *_args: self.point,
+            lambda *_args: self.point,
+            lambda *_args: self.point,
+            lambda *_args: self.point,
+            lambda *_args: self.point,
+            lambda *_args: self.point,
+            update_affected_areas,
+            lambda *_args: None,
+        )
+
+    def _labels(self) -> list[str]:
+        return [
+            element.args[0]
+            for element in self.fake_ui.elements
+            if element.kind == "label"
+        ]
+
+    def _department_inputs(self):
+        return [
+            element
+            for element in self.fake_ui.elements
+            if element.kind == "input"
+            and element.args == ("Departamento afectado",)
+        ]
+
+    def _city_inputs(self):
+        return [
+            element
+            for element in self.fake_ui.elements
+            if element.kind == "input"
+            and element.args
+            == (
+                "Ciudad / Municipio afectado (vacío = todo el departamento)",
+            )
+        ]
+
+    def _add_button(self):
+        return next(
+            element
+            for element in self.fake_ui.elements
+            if element.kind == "button"
+            and element.args == ("Agregar zona afectada",)
+        )
+
+    def _save_button(self):
+        return next(
+            element
+            for element in self.fake_ui.elements
+            if element.kind == "button"
+            and element.args == ("Guardar zonas afectadas",)
+        )
+
+    def test_affected_areas_card_lists_existing_areas(self) -> None:
+        self._render()
+
+        self.assertIn("Zonas afectadas", self._labels())
+        department_inputs = self._department_inputs()
+        city_inputs = self._city_inputs()
+        self.assertEqual(len(department_inputs), 1)
+        self.assertEqual(department_inputs[0].value, "Valle del Cauca")
+        self.assertEqual(city_inputs[0].value, "Roldanillo")
+
+    def test_add_area_and_save_delegates_full_list(self) -> None:
+        calls = []
+
+        def update_affected_areas(point, token, areas):
+            calls.append((point, token, areas))
+            return point
+
+        self._render(update_affected_areas)
+
+        self._add_button().kwargs["on_click"]()
+        self._department_inputs()[1].value = "Caldas"
+        self._city_inputs()[1].value = ""
+
+        self._save_button().kwargs["on_click"]()
+
+        self.assertEqual(
+            calls,
+            [
+                (
+                    self.point,
+                    self.token,
+                    (
+                        AffectedArea(department="Valle del Cauca", city="Roldanillo"),
+                        AffectedArea(department="Caldas", city=None),
+                    ),
+                )
+            ],
+        )
+
+    def test_remove_the_only_area_blocks_save_with_generic_notice(self) -> None:
+        calls = []
+        self._render(lambda *_args: calls.append(True) or self.point)
+
+        remove_buttons = [
+            element
+            for element in self.fake_ui.elements
+            if element.kind == "button"
+            and element.args == ("Quitar",)
+            and element.props_value == "flat color=red-9"
+        ]
+        remove_buttons[-1].kwargs["on_click"]()
+
+        self._save_button().kwargs["on_click"]()
+
+        self.assertEqual(calls, [])
+        notifications = [
+            element.args[0]
+            for element in self.fake_ui.elements
+            if element.kind == "notify"
+        ]
+        self.assertEqual(
+            notifications, ["Agrega al menos una zona afectada."]
+        )
+
+    def test_blank_department_blocks_save_with_specific_notice(self) -> None:
+        calls = []
+        self._render(lambda *_args: calls.append(True) or self.point)
+
+        self._department_inputs()[0].value = "   "
+        self._save_button().kwargs["on_click"]()
+
+        self.assertEqual(calls, [])
+        notifications = [
+            element.args[0]
+            for element in self.fake_ui.elements
+            if element.kind == "notify"
+        ]
+        self.assertEqual(
+            notifications, ["Completa el departamento de cada zona."]
+        )
+
+
 class ManageHelpPointResponsivePresentationTests(unittest.TestCase):
     def test_category_name_resolves_known_id_and_falls_back(self) -> None:
         water_id = uuid4()
@@ -664,6 +1047,12 @@ class ManageHelpPointResponsivePresentationTests(unittest.TestCase):
                 HelpPointCategory.DONATION_COLLECTION: "Recolección de donaciones",
                 HelpPointCategory.DEBRIS_REMOVAL: "Remoción de escombros",
                 HelpPointCategory.RESCUE_OPERATIONS: "Labores de rescate",
+                HelpPointCategory.PSYCHOLOGICAL_SUPPORT: "Psicológica",
+                HelpPointCategory.MEDICAL_CARE: "Médica",
+                HelpPointCategory.HOUSING_AND_SHELTER: "Vivienda y Albergues",
+                HelpPointCategory.COMMUNITY_FOOD: "Alimentación Comunitaria",
+                HelpPointCategory.VOLUNTEERING: "Voluntariado",
+                HelpPointCategory.BLOOD_DONATION: "Donación de sangre",
             },
         )
 
@@ -715,6 +1104,8 @@ class ManageHelpPointResponsivePresentationTests(unittest.TestCase):
                 update_category,
                 lambda *_args: point,
                 lambda *_args: point,
+                lambda *_args: None,
+                lambda *_args: None,
             )
             category_select = next(
                 element
@@ -748,7 +1139,7 @@ class ManageHelpPointResponsivePresentationTests(unittest.TestCase):
         original_ui = manage_help_point.ui
         manage_help_point.ui = fake_ui
         try:
-            manage_help_point.render_manage_help_point(point, "private-token", {"Agua": category_id}, lambda *_args: point, lambda *_args: point, lambda *_args: calls.append(_args) or point, lambda *_args: point, lambda *_args: point, lambda *_args: point, lambda *_args: point, lambda *_args: point)
+            manage_help_point.render_manage_help_point(point, "private-token", {"Agua": category_id}, lambda *_args: point, lambda *_args: point, lambda *_args: calls.append(_args) or point, lambda *_args: point, lambda *_args: point, lambda *_args: point, lambda *_args: point, lambda *_args: point, lambda *_args: None, lambda *_args: None)
             selector = next(element for element in fake_ui.elements if element.kind == "select" and element.kwargs.get("label") == "Estado")
             selector.value = NeedStatus.COVERED
             save = next(element for element in fake_ui.elements if element.kind == "button" and element.args[0] == "Guardar estado")
@@ -855,6 +1246,8 @@ class ManageHelpPointResponsivePresentationTests(unittest.TestCase):
                 lambda *_args: point,
                 lambda *_args: point,
                 lambda *_args: point,
+                lambda *_args: None,
+                lambda *_args: None,
             )
             remove_launch = next(
                 element
@@ -972,6 +1365,8 @@ class ManageHelpPointResponsivePresentationTests(unittest.TestCase):
                 lambda *_args: point,
                 lambda *_args: point,
                 lambda *_args: point,
+                lambda *_args: None,
+                lambda *_args: None,
             )
             next(
                 element
@@ -1015,6 +1410,8 @@ class ManageHelpPointResponsivePresentationTests(unittest.TestCase):
                 lambda *_args: point,
                 lambda *_args: point,
                 lambda *_args: point,
+                lambda *_args: None,
+                lambda *_args: None,
             )
             try:
                 next(
@@ -1062,6 +1459,8 @@ class ManageHelpPointCommitmentsTests(unittest.TestCase):
             lambda *_args: point,
             lambda *_args: point,
             lambda *_args: point,
+            lambda *_args: None,
+            lambda *_args: None,
         )
 
     def test_commitments_are_listed_with_name_and_note_when_present(self) -> None:

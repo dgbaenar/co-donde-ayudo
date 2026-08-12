@@ -192,8 +192,9 @@ class PublicHelpPointFilteringTests(unittest.TestCase):
         affected_areas: tuple[AffectedArea, ...],
         active: bool,
         category_id,
+        category: HelpPointCategory = HelpPointCategory.RESCUE_OPERATIONS,
     ) -> PublicHelpPoint:
-        return PublicHelpPoint(category=HelpPointCategory.RESCUE_OPERATIONS,
+        return PublicHelpPoint(category=category,
             id=uuid4(),
             name=name,
             description="Se requiere apoyo.",
@@ -235,6 +236,33 @@ class PublicHelpPointFilteringTests(unittest.TestCase):
         self.assertEqual(
             filter_public_help_points(self.points, city="Quibdó"),
             (self.multi_area,),
+        )
+
+    def test_category_filter_matches_only_points_of_that_category(self) -> None:
+        donation_point = self.point(
+            name="Punto de donaciones",
+            city="Cali",
+            department="Valle del Cauca",
+            affected_areas=(
+                AffectedArea(department="Valle del Cauca", city="Roldanillo"),
+            ),
+            active=True,
+            category_id=self.water_id,
+            category=HelpPointCategory.DONATION_COLLECTION,
+        )
+        points = (*self.points, donation_point)
+
+        self.assertEqual(
+            filter_public_help_points(
+                points, category=HelpPointCategory.DONATION_COLLECTION
+            ),
+            (donation_point,),
+        )
+        self.assertEqual(
+            filter_public_help_points(
+                points, category=HelpPointCategory.RESCUE_OPERATIONS
+            ),
+            (self.cali_water, self.medellin_blanket, self.multi_area),
         )
 
     def test_filters_destination_while_map_coordinates_stay_physical(self) -> None:
@@ -378,7 +406,7 @@ class HomeResponsivePresentationTests(unittest.TestCase):
 
         self.assertTrue(any(element.kind == "link" and element.args == ("Crear nuevo punto de ayuda o recolección", "/crear") for element in fake_ui.elements))
         self.assertTrue(any(element.kind == "label" and element.args == ("Todavía no hay puntos de ayuda activos.",) for element in fake_ui.elements))
-        self.assertTrue(any(element.kind == "label" and element.args == ("Filtrar por zona afectada",) for element in fake_ui.elements))
+        self.assertTrue(any(element.kind == "label" and element.args == ("Filtros",) for element in fake_ui.elements))
         visible_labels = [
             element.args[0]
             for element in fake_ui.elements
@@ -402,7 +430,7 @@ class HomeResponsivePresentationTests(unittest.TestCase):
         selects = [element for element in fake_ui.elements if element.kind == "select"]
         self.assertEqual(
             {element.kwargs["label"] for element in selects},
-            {"Ciudad / Municipio", "Departamento"},
+            {"Ciudad / Municipio", "Departamento", "Categoría del punto"},
         )
         department = next(element for element in selects if element.kwargs["label"] == "Departamento")
         city = next(element for element in selects if element.kwargs["label"] == "Ciudad / Municipio")
@@ -444,7 +472,7 @@ class HomeResponsivePresentationTests(unittest.TestCase):
         filter_heading = next(
             element
             for element in fake_ui.elements
-            if element.kind == "label" and element.args == ("Filtrar por zona afectada",)
+            if element.kind == "label" and element.args == ("Filtros",)
         )
 
         def has_descendant(parent, target):
@@ -573,6 +601,7 @@ class HomeResponsivePresentationTests(unittest.TestCase):
             coordinator_name="Ana", coordinator_contact="Contacto", active=True,
             needs=(Need(id=uuid4(), category_id=category_id, status=NeedStatus.NEEDS_HELP),),
             created_at=datetime(2026, 8, 12, tzinfo=UTC),
+            updated_at=datetime(2020, 1, 1, 10, 30, tzinfo=UTC),
         )
         inactive = PublicHelpPoint(category=HelpPointCategory.RESCUE_OPERATIONS,
             id=uuid4(), name="Cerrado", description="Cerrado",
@@ -621,6 +650,15 @@ class HomeResponsivePresentationTests(unittest.TestCase):
         )
         self.assertIn("Labores de rescate", labels)
         self.assertIn("Publicado el 12 ago 2026", labels)
+        self.assertIn("Actualizado el 1 ene 2020, 10:30", labels)
+        category_select = next(
+            element
+            for element in fake_ui.elements
+            if element.kind == "select"
+            and element.kwargs["label"] == "Categoría del punto"
+        )
+        self.assertEqual(category_select.options[""], "Todas las categorías")
+        self.assertEqual(len(category_select.options) - 1, len(HelpPointCategory))
 
     def test_result_row_shows_whole_department_when_city_is_none(self) -> None:
         category_id = uuid4()
@@ -752,6 +790,49 @@ class HomeResponsivePresentationTests(unittest.TestCase):
         self.assertEqual(city.value, "")
         self.assertFalse(city.enabled)
         self.assertEqual(city.disable_calls, 2)
+
+    def test_category_change_refreshes_map_to_only_that_category(self) -> None:
+        fake_ui = RecordingUi()
+        original_ui = home.ui
+        home.ui = fake_ui
+        rendered_map_points = []
+        try:
+            with patch.object(
+                home,
+                "render_help_point_map",
+                side_effect=lambda points, _categories: rendered_map_points.append(tuple(points)),
+            ):
+                points_test = PublicHelpPointFilteringTests()
+                points_test.setUp()
+                donation_point = points_test.point(
+                    name="Punto de donaciones",
+                    city="Cali",
+                    department="Valle del Cauca",
+                    affected_areas=(
+                        AffectedArea(department="Valle del Cauca", city="Roldanillo"),
+                    ),
+                    active=True,
+                    category_id=points_test.water_id,
+                    category=HelpPointCategory.DONATION_COLLECTION,
+                )
+                home.render_home(
+                    (*points_test.points, donation_point),
+                    points_test.categories,
+                    lambda: AFFECTED_DEPARTMENTS,
+                    list_localities,
+                )
+                category_select = next(
+                    element
+                    for element in fake_ui.elements
+                    if element.kind == "select"
+                    and element.kwargs["label"] == "Categoría del punto"
+                )
+                category_select.value = HelpPointCategory.DONATION_COLLECTION
+                category_select.on_change()
+        finally:
+            home.ui = original_ui
+
+        self.assertEqual(rendered_map_points[-1], (donation_point,))
 
     def test_result_row_shows_at_most_three_needs_and_remainder_count(self) -> None:
         need_specs = [
@@ -914,8 +995,8 @@ class HomeResponsivePresentationTests(unittest.TestCase):
                 element.kind == "label"
                 and element.args
                 == (
-                    "No encontramos puntos en esta ubicación. "
-                    "Prueba con otro departamento o ciudad / municipio.",
+                    "No encontramos puntos con estos filtros. "
+                    "Prueba con otro departamento, ciudad / municipio o categoría.",
                 )
                 for element in fake_ui.elements
             )

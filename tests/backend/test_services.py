@@ -457,6 +457,15 @@ class HelpPointServiceTests(unittest.TestCase):
         self.assertIs(created.category, HelpPointCategory.DEBRIS_REMOVAL)
         self.assertIs(self.repository.created.category, HelpPointCategory.DEBRIS_REMOVAL)
 
+    def test_create_accepts_every_help_point_category(self) -> None:
+        for category in HelpPointCategory:
+            with self.subTest(category=category):
+                created = self.service.create_help_point(
+                    self.command(category=category)
+                ).point
+
+                self.assertIs(created.category, category)
+
     def test_add_need_persists_an_immutable_point_with_needs_help(self) -> None:
         created = self.service.create_help_point(self.command()).point
         category_id = uuid4()
@@ -678,6 +687,84 @@ class HelpPointServiceTests(unittest.TestCase):
                 created,
                 "incorrect",
                 (NewHelpPointLocation("Calle 5", "Cali", "Valle del Cauca", 3.4, -76.5),),
+            )
+
+    def test_update_help_point_affected_areas_replaces_the_full_list(self) -> None:
+        created = self.service.create_help_point(self.command()).point
+
+        updated = self.service.update_help_point_affected_areas(
+            created,
+            created.admin_token,
+            (
+                AffectedArea(department="  Caldas  ", city="  Manizales  "),
+                AffectedArea(department="Valle del Cauca", city=None),
+            ),
+        )
+
+        self.assertIs(self.repository.updated, updated)
+        self.assertEqual(
+            updated.affected_areas,
+            (
+                AffectedArea(department="Caldas", city="Manizales"),
+                AffectedArea(department="Valle del Cauca", city=None),
+            ),
+        )
+
+    def test_update_help_point_affected_areas_rejects_empty_list(self) -> None:
+        created = self.service.create_help_point(self.command()).point
+
+        with self.assertRaisesRegex(ValueError, "at least one affected area"):
+            self.service.update_help_point_affected_areas(
+                created, created.admin_token, ()
+            )
+
+    def test_update_help_point_affected_areas_rejects_department_outside_scope(
+        self,
+    ) -> None:
+        created = self.service.create_help_point(self.command()).point
+
+        with self.assertRaisesRegex(ValueError, "outside active emergency scope"):
+            self.service.update_help_point_affected_areas(
+                created,
+                created.admin_token,
+                (AffectedArea(department="Antioquia", city=None),),
+            )
+
+    def test_update_help_point_affected_areas_rejects_city_outside_department(
+        self,
+    ) -> None:
+        created = self.service.create_help_point(self.command()).point
+
+        with self.assertRaisesRegex(ValueError, "does not belong"):
+            self.service.update_help_point_affected_areas(
+                created,
+                created.admin_token,
+                (AffectedArea(department="Caldas", city="Roldanillo"),),
+            )
+
+    def test_update_help_point_affected_areas_rejects_duplicate_pairs(self) -> None:
+        created = self.service.create_help_point(self.command()).point
+
+        with self.assertRaisesRegex(ValueError, "unique"):
+            self.service.update_help_point_affected_areas(
+                created,
+                created.admin_token,
+                (
+                    AffectedArea(department="Caldas", city="Manizales"),
+                    AffectedArea(department="Caldas", city="Manizales"),
+                ),
+            )
+
+    def test_update_help_point_affected_areas_rejects_incorrect_admin_token(
+        self,
+    ) -> None:
+        created = self.service.create_help_point(self.command()).point
+
+        with self.assertRaisesRegex(PermissionError, "admin token"):
+            self.service.update_help_point_affected_areas(
+                created,
+                "incorrect",
+                (AffectedArea(department="Caldas", city=None),),
             )
 
     def test_lists_active_categories_from_repository(self) -> None:
