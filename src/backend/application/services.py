@@ -94,6 +94,7 @@ class HelpPointService:
                 if command.additional_affected_areas
                 else None
             ),
+            important_links=command.important_links,
         )
         created = self._repository.create_help_point(point)
         return CreatedHelpPoint(point=created, admin_token=token)
@@ -245,4 +246,5 @@ class HelpPointService:
             needs=tuple(replace(need, commitments=()) for need in point.needs),
             updated_at=point.updated_at,
             additional_affected_areas=point.additional_affected_areas,
+            important_links=point.important_links,
         )

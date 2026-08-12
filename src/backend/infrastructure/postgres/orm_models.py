@@ -4,7 +4,7 @@ from datetime import datetime
 from uuid import UUID, uuid4
 
 from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, String, Text, UniqueConstraint, func
-from sqlalchemy.dialects.postgresql import UUID as PGUUID
+from sqlalchemy.dialects.postgresql import ARRAY, UUID as PGUUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -24,6 +24,9 @@ class HelpPointRow(Base):
     ciudad_afectada: Mapped[str | None] = mapped_column(String(120), nullable=True)
     departamento_afectado: Mapped[str] = mapped_column(String(120), nullable=False)
     zonas_adicionales: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    enlaces_importantes: Mapped[list[str]] = mapped_column(
+        ARRAY(Text), nullable=False, server_default="{}"
+    )
     latitude: Mapped[float] = mapped_column(nullable=False)
     longitude: Mapped[float] = mapped_column(nullable=False)
     nombre_coordinador: Mapped[str] = mapped_column(String(120), nullable=False)

@@ -43,6 +43,7 @@ class CreateHelpPoint:
     coordinator_contact: str
     category_ids: tuple[UUID, ...]
     additional_affected_areas: str | None = None
+    important_links: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         for value, field, maximum in (
@@ -58,6 +59,12 @@ class CreateHelpPoint:
             validate_required(value, field, maximum)
         validate_optional(self.affected_city, "affected_city", 120)
         validate_optional(self.additional_affected_areas, "additional_affected_areas", 500)
+        for link in self.important_links:
+            stripped = link.strip()
+            if not stripped.startswith(("http://", "https://")):
+                raise ValueError("important_links must start with http:// or https://")
+            if not 1 <= len(stripped) <= 500:
+                raise ValueError("important_links must be between 1 and 500 characters")
         if not -90 <= self.latitude <= 90:
             raise ValueError("latitude must be between -90 and 90")
         if not -180 <= self.longitude <= 180:
@@ -106,6 +113,7 @@ class HelpPoint:
     needs: tuple[Need, ...]
     updated_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     additional_affected_areas: str | None = None
+    important_links: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -126,6 +134,7 @@ class PublicHelpPoint:
     needs: tuple[Need, ...]
     updated_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     additional_affected_areas: str | None = None
+    important_links: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

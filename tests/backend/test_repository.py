@@ -61,6 +61,7 @@ class Factory:
 def point(
     additional_affected_areas: str | None = None,
     affected_city: str | None = "Roldanillo",
+    important_links: tuple[str, ...] = (),
 ) -> HelpPoint:
     return HelpPoint(
         id=UUID("00000000-0000-0000-0000-000000000001"), name="Parque", description="Ayuda",
@@ -71,6 +72,7 @@ def point(
         needs=(Need(UUID("00000000-0000-0000-0000-000000000010"), UUID("00000000-0000-0000-0000-000000000100"), NeedStatus.NEEDS_HELP),),
         updated_at=FIXED_UPDATED_AT,
         additional_affected_areas=additional_affected_areas,
+        important_links=important_links,
     )
 
 
@@ -109,6 +111,32 @@ class RepositoryTests(unittest.TestCase):
         self.assertIsNone(row.zonas_adicionales)
         restored = PostgresHelpPointRepository._point_from_row(row)
         self.assertIsNone(restored.additional_affected_areas)
+
+    def test_create_round_trips_important_links_when_present(self) -> None:
+        session = Session()
+        source = point(important_links=("https://example.com/ayuda", "http://otro.example.co"))
+        PostgresHelpPointRepository(Factory(session)).create_help_point(source)
+
+        row = session.added[0]
+        self.assertEqual(
+            row.enlaces_importantes,
+            ["https://example.com/ayuda", "http://otro.example.co"],
+        )
+        restored = PostgresHelpPointRepository._point_from_row(row)
+        self.assertEqual(
+            restored.important_links,
+            ("https://example.com/ayuda", "http://otro.example.co"),
+        )
+
+    def test_create_round_trips_important_links_when_empty(self) -> None:
+        session = Session()
+        source = point(important_links=())
+        PostgresHelpPointRepository(Factory(session)).create_help_point(source)
+
+        row = session.added[0]
+        self.assertEqual(row.enlaces_importantes, [])
+        restored = PostgresHelpPointRepository._point_from_row(row)
+        self.assertEqual(restored.important_links, ())
 
     def test_create_round_trips_affected_city_when_none(self) -> None:
         session = Session()
