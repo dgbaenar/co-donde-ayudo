@@ -45,11 +45,14 @@ class Factory:
         return self.session
 
 
-def point(additional_affected_areas: str | None = None) -> HelpPoint:
+def point(
+    additional_affected_areas: str | None = None,
+    affected_city: str | None = "Roldanillo",
+) -> HelpPoint:
     return HelpPoint(
         id=UUID("00000000-0000-0000-0000-000000000001"), name="Parque", description="Ayuda",
         city="Cali", department="Valle del Cauca", address="Calle 5 # 10-20",
-        affected_city="Roldanillo", affected_department="Valle del Cauca",
+        affected_city=affected_city, affected_department="Valle del Cauca",
         latitude=3.4, longitude=-76.5, coordinator_name="Ana",
         coordinator_contact="Contacto", admin_token="x" * 40, active=True,
         needs=(Need(UUID("00000000-0000-0000-0000-000000000010"), UUID("00000000-0000-0000-0000-000000000100"), NeedStatus.NEEDS_HELP),),
@@ -92,6 +95,17 @@ class RepositoryTests(unittest.TestCase):
         self.assertIsNone(row.zonas_adicionales)
         restored = PostgresHelpPointRepository._point_from_row(row)
         self.assertIsNone(restored.additional_affected_areas)
+
+    def test_create_round_trips_affected_city_when_none(self) -> None:
+        session = Session()
+        source = point(affected_city=None)
+        PostgresHelpPointRepository(Factory(session)).create_help_point(source)
+
+        row = session.added[0]
+        self.assertIsNone(row.ciudad_afectada)
+        restored = PostgresHelpPointRepository._point_from_row(row)
+        self.assertIsNone(restored.affected_city)
+        self.assertEqual(restored.affected_department, "Valle del Cauca")
 
     def test_update_changes_existing_need_without_deleting_it(self) -> None:
         original = point()

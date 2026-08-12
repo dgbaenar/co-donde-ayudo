@@ -49,14 +49,16 @@ class HelpPointService:
     def create_help_point(self, command: CreateHelpPoint) -> CreatedHelpPoint:
         city = command.city.strip()
         department = command.department.strip()
-        affected_city = command.affected_city.strip()
+        affected_city = (
+            command.affected_city.strip() if command.affected_city is not None else ""
+        ) or None
         affected_department = command.affected_department.strip()
         if affected_department not in AFFECTED_DEPARTMENTS:
             raise ValueError("affected department is outside active emergency scope")
         if city not in self._location_catalog.list_localities(department):
             raise ValueError("city does not belong to department")
-        if affected_city not in self._location_catalog.list_localities(
-            affected_department
+        if affected_city is not None and affected_city not in (
+            self._location_catalog.list_localities(affected_department)
         ):
             raise ValueError("affected city does not belong to affected department")
         token = secrets.token_urlsafe(32)

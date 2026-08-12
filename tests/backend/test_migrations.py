@@ -17,6 +17,9 @@ ALEMBIC_ROOT = SOURCE_ROOT / "alembic"
 MIGRATION = ALEMBIC_ROOT / "versions/0001_initial_schema.py"
 LOCATION_MIGRATION = ALEMBIC_ROOT / "versions/0002_help_point_locations.py"
 ADDITIONAL_AREAS_MIGRATION = ALEMBIC_ROOT / "versions/0003_help_point_additional_areas.py"
+OPTIONAL_AFFECTED_CITY_MIGRATION = (
+    ALEMBIC_ROOT / "versions/0004_help_point_optional_affected_city.py"
+)
 EXPECTED_TABLES = {"help_points", "need_categories", "needs", "commitments"}
 
 
@@ -43,6 +46,17 @@ def load_location_migration():
 def load_additional_areas_migration():
     specification = importlib.util.spec_from_file_location(
         "help_point_additional_areas_migration", ADDITIONAL_AREAS_MIGRATION
+    )
+    assert specification is not None
+    assert specification.loader is not None
+    module = importlib.util.module_from_spec(specification)
+    specification.loader.exec_module(module)
+    return module
+
+
+def load_optional_affected_city_migration():
+    specification = importlib.util.spec_from_file_location(
+        "help_point_optional_affected_city_migration", OPTIONAL_AFFECTED_CITY_MIGRATION
     )
     assert specification is not None
     assert specification.loader is not None
@@ -306,7 +320,7 @@ class MigrationTests(unittest.TestCase):
             ["zonas_adicionales"],
         )
 
-    def test_additional_areas_migration_is_the_single_alembic_head(self) -> None:
+    def test_optional_affected_city_migration_is_the_single_alembic_head(self) -> None:
         environment = dict(os.environ)
         environment["PYTHONPATH"] = str(SOURCE_ROOT)
         result = subprocess.run(
@@ -320,7 +334,63 @@ class MigrationTests(unittest.TestCase):
 
         self.assertEqual(result.returncode, 0, result.stderr)
         heads = [line.split()[0] for line in result.stdout.splitlines() if line.strip()]
-        self.assertEqual(heads, ["0003_help_point_additional_areas"])
+        self.assertEqual(heads, ["0004_help_point_optional_affected_city"])
+
+    def test_optional_affected_city_migration_follows_additional_areas_revision_without_new_tables(
+        self,
+    ) -> None:
+        self.assertTrue(OPTIONAL_AFFECTED_CITY_MIGRATION.is_file())
+        migration = load_optional_affected_city_migration()
+        tree = ast.parse(OPTIONAL_AFFECTED_CITY_MIGRATION.read_text(encoding="utf-8"))
+        create_table_calls = [
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "create_table"
+        ]
+
+        self.assertEqual(migration.revision, "0004_help_point_optional_affected_city")
+        self.assertEqual(migration.down_revision, "0003_help_point_additional_areas")
+        self.assertEqual(create_table_calls, [])
+
+    def test_optional_affected_city_migration_upgrade_relaxes_column_and_constraint(self) -> None:
+        migration = load_optional_affected_city_migration()
+
+        with patch.object(migration, "op") as operations:
+            migration.upgrade()
+
+        self.assertEqual(
+            operations.drop_constraint.call_args_list,
+            [call("help_points_ciudad_afectada_check", "help_points", type_="check")],
+        )
+        self.assertEqual(
+            operations.alter_column.call_args_list,
+            [call("help_points", "ciudad_afectada", nullable=True)],
+        )
+        self.assertEqual(
+            [item.args[0] for item in operations.create_check_constraint.call_args_list],
+            ["help_points_ciudad_afectada_check"],
+        )
+
+    def test_optional_affected_city_migration_downgrade_restores_not_null(self) -> None:
+        migration = load_optional_affected_city_migration()
+
+        with patch.object(migration, "op") as operations:
+            migration.downgrade()
+
+        self.assertEqual(
+            operations.drop_constraint.call_args_list,
+            [call("help_points_ciudad_afectada_check", "help_points", type_="check")],
+        )
+        self.assertEqual(
+            operations.alter_column.call_args_list,
+            [call("help_points", "ciudad_afectada", nullable=False)],
+        )
+        self.assertEqual(
+            [item.args[0] for item in operations.create_check_constraint.call_args_list],
+            ["help_points_ciudad_afectada_check"],
+        )
 
     def test_commitment_note_constraint_belongs_only_to_commitments(self) -> None:
         source = MIGRATION.read_text(encoding="utf-8")

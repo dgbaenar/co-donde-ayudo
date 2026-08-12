@@ -34,7 +34,7 @@ class CreateHelpPoint:
     city: str
     department: str
     address: str
-    affected_city: str
+    affected_city: str | None
     affected_department: str
     latitude: float
     longitude: float
@@ -50,12 +50,12 @@ class CreateHelpPoint:
             (self.city, "city", 120),
             (self.department, "department", 120),
             (self.address, "address", 240),
-            (self.affected_city, "affected_city", 120),
             (self.affected_department, "affected_department", 120),
             (self.coordinator_name, "coordinator_name", 120),
             (self.coordinator_contact, "coordinator_contact", 240),
         ):
             validate_required(value, field, maximum)
+        validate_optional(self.affected_city, "affected_city", 120)
         validate_optional(self.additional_affected_areas, "additional_affected_areas", 500)
         if not -90 <= self.latitude <= 90:
             raise ValueError("latitude must be between -90 and 90")
@@ -82,7 +82,7 @@ class HelpPoint:
     city: str
     department: str
     address: str | None
-    affected_city: str
+    affected_city: str | None
     affected_department: str
     latitude: float
     longitude: float
@@ -102,7 +102,7 @@ class PublicHelpPoint:
     city: str
     department: str
     address: str | None
-    affected_city: str
+    affected_city: str | None
     affected_department: str
     latitude: float
     longitude: float

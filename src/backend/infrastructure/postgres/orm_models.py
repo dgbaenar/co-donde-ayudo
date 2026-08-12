@@ -14,14 +14,14 @@ class Base(DeclarativeBase):
 
 class HelpPointRow(Base):
     __tablename__ = "help_points"
-    __table_args__ = (CheckConstraint("char_length(nombre) between 1 and 120"), CheckConstraint("char_length(descripcion) between 1 and 1000"), CheckConstraint("char_length(ciudad) between 1 and 120"), CheckConstraint("char_length(departamento) between 1 and 120"), CheckConstraint("direccion is null or char_length(direccion) between 1 and 240", name="help_points_direccion_check"), CheckConstraint("char_length(ciudad_afectada) between 1 and 120", name="help_points_ciudad_afectada_check"), CheckConstraint("char_length(departamento_afectado) between 1 and 120", name="help_points_departamento_afectado_check"), CheckConstraint("zonas_adicionales is null or char_length(zonas_adicionales) between 1 and 500", name="help_points_zonas_adicionales_check"), CheckConstraint("latitude between -90 and 90"), CheckConstraint("longitude between -180 and 180"), CheckConstraint("char_length(nombre_coordinador) between 1 and 120"), CheckConstraint("char_length(contacto_coordinador) between 1 and 240"), CheckConstraint("char_length(admin_token) >= 40"))
+    __table_args__ = (CheckConstraint("char_length(nombre) between 1 and 120"), CheckConstraint("char_length(descripcion) between 1 and 1000"), CheckConstraint("char_length(ciudad) between 1 and 120"), CheckConstraint("char_length(departamento) between 1 and 120"), CheckConstraint("direccion is null or char_length(direccion) between 1 and 240", name="help_points_direccion_check"), CheckConstraint("ciudad_afectada is null or char_length(ciudad_afectada) between 1 and 120", name="help_points_ciudad_afectada_check"), CheckConstraint("char_length(departamento_afectado) between 1 and 120", name="help_points_departamento_afectado_check"), CheckConstraint("zonas_adicionales is null or char_length(zonas_adicionales) between 1 and 500", name="help_points_zonas_adicionales_check"), CheckConstraint("latitude between -90 and 90"), CheckConstraint("longitude between -180 and 180"), CheckConstraint("char_length(nombre_coordinador) between 1 and 120"), CheckConstraint("char_length(contacto_coordinador) between 1 and 240"), CheckConstraint("char_length(admin_token) >= 40"))
     id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, nullable=False)
     nombre: Mapped[str] = mapped_column(String(120), nullable=False)
     descripcion: Mapped[str] = mapped_column(Text, nullable=False)
     ciudad: Mapped[str] = mapped_column(String(120), nullable=False)
     departamento: Mapped[str] = mapped_column(String(120), nullable=False)
     direccion: Mapped[str | None] = mapped_column(String(240), nullable=True)
-    ciudad_afectada: Mapped[str] = mapped_column(String(120), nullable=False)
+    ciudad_afectada: Mapped[str | None] = mapped_column(String(120), nullable=True)
     departamento_afectado: Mapped[str] = mapped_column(String(120), nullable=False)
     zonas_adicionales: Mapped[str | None] = mapped_column(String(500), nullable=True)
     latitude: Mapped[float] = mapped_column(nullable=False)

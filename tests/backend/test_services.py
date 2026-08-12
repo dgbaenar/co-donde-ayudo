@@ -47,8 +47,10 @@ class FakeLocationCatalog:
             "Antioquia": ("Medellín",),
             "Valle del Cauca": ("Cali", "Roldanillo"),
         }
+        self.queried_departments: list[str] = []
 
     def list_localities(self, department: str) -> tuple[str, ...]:
+        self.queried_departments.append(department)
         return self.localities.get(department, ())
 
 
@@ -101,6 +103,15 @@ class HelpPointServiceTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, field):
                     self.command(**{field: "   "})
 
+    def test_create_command_accepts_missing_affected_city(self) -> None:
+        command = self.command(affected_city=None)
+
+        self.assertIsNone(command.affected_city)
+
+    def test_create_command_rejects_blank_affected_city(self) -> None:
+        with self.assertRaisesRegex(ValueError, "affected_city"):
+            self.command(affected_city="   ")
+
     def test_create_rejects_destination_outside_active_scope(self) -> None:
         invalid = self.command(
             affected_department="Antioquia",
@@ -118,6 +129,19 @@ class HelpPointServiceTests(unittest.TestCase):
             self.service.create_help_point(invalid_affected)
         with self.assertRaisesRegex(ValueError, "city"):
             self.service.create_help_point(invalid_physical)
+
+    def test_create_accepts_missing_affected_city_without_membership_validation(self) -> None:
+        created = self.service.create_help_point(self.command(affected_city=None)).point
+
+        self.assertIsNone(created.affected_city)
+        self.assertEqual(created.affected_department, "Valle del Cauca")
+        # "Valle del Cauca" is queried once for the physical city/department check; the
+        # affected-city membership check must be skipped entirely when affected_city is None,
+        # even though city == affected_department in this fixture.
+        self.assertEqual(
+            self.location_catalog.queried_departments.count("Valle del Cauca"),
+            1,
+        )
 
     def test_create_keeps_physical_and_affected_locations_separate(self) -> None:
         created = self.service.create_help_point(self.command()).point
