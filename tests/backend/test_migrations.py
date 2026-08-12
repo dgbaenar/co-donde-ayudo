@@ -16,6 +16,7 @@ SOURCE_ROOT = Path(__file__).resolve().parents[2] / "src"
 ALEMBIC_ROOT = SOURCE_ROOT / "alembic"
 MIGRATION = ALEMBIC_ROOT / "versions/0001_initial_schema.py"
 LOCATION_MIGRATION = ALEMBIC_ROOT / "versions/0002_help_point_locations.py"
+ADDITIONAL_AREAS_MIGRATION = ALEMBIC_ROOT / "versions/0003_help_point_additional_areas.py"
 EXPECTED_TABLES = {"help_points", "need_categories", "needs", "commitments"}
 
 
@@ -31,6 +32,17 @@ def load_migration():
 def load_location_migration():
     specification = importlib.util.spec_from_file_location(
         "help_point_locations_migration", LOCATION_MIGRATION
+    )
+    assert specification is not None
+    assert specification.loader is not None
+    module = importlib.util.module_from_spec(specification)
+    specification.loader.exec_module(module)
+    return module
+
+
+def load_additional_areas_migration():
+    specification = importlib.util.spec_from_file_location(
+        "help_point_additional_areas_migration", ADDITIONAL_AREAS_MIGRATION
     )
     assert specification is not None
     assert specification.loader is not None
@@ -246,6 +258,69 @@ class MigrationTests(unittest.TestCase):
         for constraint in expected_constraints:
             with self.subTest(constraint=constraint):
                 self.assertIn(constraint, source)
+
+    def test_additional_areas_migration_follows_location_revision_without_new_tables(self) -> None:
+        self.assertTrue(ADDITIONAL_AREAS_MIGRATION.is_file())
+        migration = load_additional_areas_migration()
+        tree = ast.parse(ADDITIONAL_AREAS_MIGRATION.read_text(encoding="utf-8"))
+        create_table_calls = [
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "create_table"
+        ]
+
+        self.assertEqual(migration.revision, "0003_help_point_additional_areas")
+        self.assertEqual(migration.down_revision, "0002_help_point_locations")
+        self.assertEqual(create_table_calls, [])
+
+    def test_additional_areas_migration_adds_nullable_column_with_length_constraint(self) -> None:
+        migration = load_additional_areas_migration()
+
+        with patch.object(migration, "op") as operations:
+            migration.upgrade()
+
+        added_columns = [item.args[1] for item in operations.add_column.call_args_list]
+        self.assertEqual(
+            [(column.name, column.type.length, column.nullable) for column in added_columns],
+            [("zonas_adicionales", 500, True)],
+        )
+        constraint_names = {
+            item.args[0] for item in operations.create_check_constraint.call_args_list
+        }
+        self.assertEqual(constraint_names, {"help_points_zonas_adicionales_check"})
+
+    def test_additional_areas_migration_downgrade_drops_constraint_and_column(self) -> None:
+        migration = load_additional_areas_migration()
+
+        with patch.object(migration, "op") as operations:
+            migration.downgrade()
+
+        self.assertEqual(
+            [item.args[0] for item in operations.drop_constraint.call_args_list],
+            ["help_points_zonas_adicionales_check"],
+        )
+        self.assertEqual(
+            [item.args[1] for item in operations.drop_column.call_args_list],
+            ["zonas_adicionales"],
+        )
+
+    def test_additional_areas_migration_is_the_single_alembic_head(self) -> None:
+        environment = dict(os.environ)
+        environment["PYTHONPATH"] = str(SOURCE_ROOT)
+        result = subprocess.run(
+            [sys.executable, "-m", "alembic", "-c", str(ALEMBIC_ROOT / "alembic.ini"), "heads"],
+            cwd=ALEMBIC_ROOT,
+            env=environment,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        heads = [line.split()[0] for line in result.stdout.splitlines() if line.strip()]
+        self.assertEqual(heads, ["0003_help_point_additional_areas"])
 
     def test_commitment_note_constraint_belongs_only_to_commitments(self) -> None:
         source = MIGRATION.read_text(encoding="utf-8")

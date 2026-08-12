@@ -45,7 +45,7 @@ class Factory:
         return self.session
 
 
-def point() -> HelpPoint:
+def point(additional_affected_areas: str | None = None) -> HelpPoint:
     return HelpPoint(
         id=UUID("00000000-0000-0000-0000-000000000001"), name="Parque", description="Ayuda",
         city="Cali", department="Valle del Cauca", address="Calle 5 # 10-20",
@@ -53,6 +53,7 @@ def point() -> HelpPoint:
         latitude=3.4, longitude=-76.5, coordinator_name="Ana",
         coordinator_contact="Contacto", admin_token="x" * 40, active=True,
         needs=(Need(UUID("00000000-0000-0000-0000-000000000010"), UUID("00000000-0000-0000-0000-000000000100"), NeedStatus.NEEDS_HELP),),
+        additional_affected_areas=additional_affected_areas,
     )
 
 
@@ -71,6 +72,26 @@ class RepositoryTests(unittest.TestCase):
         self.assertEqual(restored.address, point().address)
         self.assertEqual(restored.affected_city, point().affected_city)
         self.assertEqual(restored.affected_department, point().affected_department)
+
+    def test_create_round_trips_additional_affected_areas_when_present(self) -> None:
+        session = Session()
+        source = point(additional_affected_areas="Roldanillo y La Unión")
+        PostgresHelpPointRepository(Factory(session)).create_help_point(source)
+
+        row = session.added[0]
+        self.assertEqual(row.zonas_adicionales, "Roldanillo y La Unión")
+        restored = PostgresHelpPointRepository._point_from_row(row)
+        self.assertEqual(restored.additional_affected_areas, "Roldanillo y La Unión")
+
+    def test_create_round_trips_additional_affected_areas_when_none(self) -> None:
+        session = Session()
+        source = point(additional_affected_areas=None)
+        PostgresHelpPointRepository(Factory(session)).create_help_point(source)
+
+        row = session.added[0]
+        self.assertIsNone(row.zonas_adicionales)
+        restored = PostgresHelpPointRepository._point_from_row(row)
+        self.assertIsNone(restored.additional_affected_areas)
 
     def test_update_changes_existing_need_without_deleting_it(self) -> None:
         original = point()

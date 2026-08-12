@@ -84,6 +84,17 @@ class HelpPointServiceTests(unittest.TestCase):
         )
         self.assertIs(list_affected_departments(), AFFECTED_DEPARTMENTS)
 
+    def test_create_command_accepts_missing_or_valid_additional_affected_areas(self) -> None:
+        without_extra = self.command()
+        self.assertIsNone(without_extra.additional_affected_areas)
+
+        with_extra = self.command(additional_affected_areas="Roldanillo y La Unión")
+        self.assertEqual(with_extra.additional_affected_areas, "Roldanillo y La Unión")
+
+    def test_create_command_rejects_additional_affected_areas_over_500_characters(self) -> None:
+        with self.assertRaisesRegex(ValueError, "additional_affected_areas"):
+            self.command(additional_affected_areas="a" * 501)
+
     def test_create_command_rejects_empty_location_fields(self) -> None:
         for field in ("address", "affected_city", "affected_department"):
             with self.subTest(field=field):
@@ -269,11 +280,47 @@ class HelpPointServiceTests(unittest.TestCase):
 
         self.assertEqual(updated.description, "Nueva descripción")
         self.assertEqual(updated.coordinator_contact, "Nuevo contacto")
+        self.assertIsNone(updated.additional_affected_areas)
         self.assertEqual(self.repository.updated, updated)
         with self.assertRaisesRegex(PermissionError, "admin token"):
             self.service.update_help_point_info(point, "incorrect", "Descripción", "Contacto")
         with self.assertRaisesRegex(ValueError, "description"):
             self.service.update_help_point_info(point, point.admin_token, " ", "Contacto")
+
+    def test_updates_info_with_additional_affected_areas_provided(self) -> None:
+        point = self.service.create_help_point(self.command()).point
+
+        updated = self.service.update_help_point_info(
+            point,
+            point.admin_token,
+            "Descripción",
+            "Contacto",
+            "  Roldanillo y La Unión  ",
+        )
+
+        self.assertEqual(updated.additional_affected_areas, "Roldanillo y La Unión")
+        self.assertEqual(self.repository.updated, updated)
+
+    def test_updates_info_normalizes_blank_additional_affected_areas_to_none(self) -> None:
+        point = self.service.create_help_point(self.command()).point
+        with_extra = self.service.update_help_point_info(
+            point, point.admin_token, "Descripción", "Contacto", "Roldanillo"
+        )
+
+        cleared = self.service.update_help_point_info(
+            with_extra, point.admin_token, "Descripción", "Contacto", "   "
+        )
+
+        self.assertIsNone(cleared.additional_affected_areas)
+        self.assertEqual(self.repository.updated, cleared)
+
+    def test_updates_info_rejects_additional_affected_areas_over_500_characters(self) -> None:
+        point = self.service.create_help_point(self.command()).point
+
+        with self.assertRaisesRegex(ValueError, "additional_affected_areas"):
+            self.service.update_help_point_info(
+                point, point.admin_token, "Descripción", "Contacto", "a" * 501
+            )
 
 
 if __name__ == "__main__":

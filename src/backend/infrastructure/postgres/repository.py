@@ -76,6 +76,7 @@ class PostgresHelpPointRepository:
         row.direccion = point.address
         row.ciudad_afectada = point.affected_city
         row.departamento_afectado = point.affected_department
+        row.zonas_adicionales = point.additional_affected_areas
         row.latitude = point.latitude
         row.longitude = point.longitude
         row.nombre_coordinador = point.coordinator_name
@@ -94,6 +95,7 @@ class PostgresHelpPointRepository:
             address=row.direccion,
             affected_city=row.ciudad_afectada,
             affected_department=row.departamento_afectado,
+            additional_affected_areas=row.zonas_adicionales,
             latitude=row.latitude,
             longitude=row.longitude,
             coordinator_name=row.nombre_coordinador,

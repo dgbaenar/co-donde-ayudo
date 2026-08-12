@@ -14,6 +14,7 @@ from backend.domain.models import (
     Need,
     NeedStatus,
     PublicHelpPoint,
+    validate_optional,
     validate_required,
 )
 
@@ -79,6 +80,11 @@ class HelpPointService:
             admin_token=token,
             active=True,
             needs=needs,
+            additional_affected_areas=(
+                command.additional_affected_areas.strip()
+                if command.additional_affected_areas
+                else None
+            ),
         )
         created = self._repository.create_help_point(point)
         return CreatedHelpPoint(point=created, admin_token=token)
@@ -150,17 +156,23 @@ class HelpPointService:
         admin_token: str,
         description: str,
         coordinator_contact: str,
+        additional_affected_areas: str | None = None,
     ) -> HelpPoint:
         self._require_admin_token(point, admin_token)
         normalized_description = description.strip()
         normalized_contact = coordinator_contact.strip()
+        normalized_additional_areas = (
+            additional_affected_areas.strip() if additional_affected_areas is not None else ""
+        ) or None
         validate_required(normalized_description, "description", 1_000)
         validate_required(normalized_contact, "coordinator_contact", 240)
+        validate_optional(normalized_additional_areas, "additional_affected_areas", 500)
         return self._repository.update_help_point(
             replace(
                 point,
                 description=normalized_description,
                 coordinator_contact=normalized_contact,
+                additional_affected_areas=normalized_additional_areas,
             )
         )
 
@@ -189,4 +201,5 @@ class HelpPointService:
             longitude=point.longitude,
             active=point.active,
             needs=point.needs,
+            additional_affected_areas=point.additional_affected_areas,
         )

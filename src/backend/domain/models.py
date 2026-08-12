@@ -18,6 +18,15 @@ def validate_required(value: str, field: str, maximum: int) -> None:
         raise ValueError(f"{field} exceeds {maximum} characters")
 
 
+def validate_optional(value: str | None, field: str, maximum: int) -> None:
+    if value is None:
+        return
+    if not value.strip():
+        raise ValueError(f"{field} must not be empty when provided")
+    if len(value) > maximum:
+        raise ValueError(f"{field} exceeds {maximum} characters")
+
+
 @dataclass(frozen=True, slots=True)
 class CreateHelpPoint:
     name: str
@@ -32,6 +41,7 @@ class CreateHelpPoint:
     coordinator_name: str
     coordinator_contact: str
     category_ids: tuple[UUID, ...]
+    additional_affected_areas: str | None = None
 
     def __post_init__(self) -> None:
         for value, field, maximum in (
@@ -46,6 +56,7 @@ class CreateHelpPoint:
             (self.coordinator_contact, "coordinator_contact", 240),
         ):
             validate_required(value, field, maximum)
+        validate_optional(self.additional_affected_areas, "additional_affected_areas", 500)
         if not -90 <= self.latitude <= 90:
             raise ValueError("latitude must be between -90 and 90")
         if not -180 <= self.longitude <= 180:
@@ -80,6 +91,7 @@ class HelpPoint:
     admin_token: str
     active: bool
     needs: tuple[Need, ...]
+    additional_affected_areas: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -96,6 +108,7 @@ class PublicHelpPoint:
     longitude: float
     active: bool
     needs: tuple[Need, ...]
+    additional_affected_areas: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
