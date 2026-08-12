@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from datetime import datetime
+from datetime import UTC, datetime
 from html import escape
 from uuid import UUID
 
@@ -27,6 +27,25 @@ _SHORT_MONTHS = (
 def format_short_date(value: datetime) -> str:
     """Format a date as "12 ago 2026", for compact publication/update labels."""
     return f"{value.day} {_SHORT_MONTHS[value.month - 1]} {value.year}"
+
+
+def format_short_datetime(value: datetime) -> str:
+    """Format a date and time as "12 ago 2026, 14:35", for last-updated labels."""
+    return f"{format_short_date(value)}, {value.strftime('%H:%M')}"
+
+
+def format_relative_time(value: datetime) -> str | None:
+    """Return "hace N minutos/horas" for values within the last day, else None."""
+    delta = datetime.now(UTC) - value
+    if delta.total_seconds() < 60:
+        return "hace menos de un minuto"
+    if delta.total_seconds() < 3600:
+        minutes = int(delta.total_seconds() // 60)
+        return f"hace {minutes} minuto{'s' if minutes != 1 else ''}"
+    if delta.total_seconds() < 86400:
+        hours = int(delta.total_seconds() // 3600)
+        return f"hace {hours} hora{'s' if hours != 1 else ''}"
+    return None
 
 _STATUS_EMOJI = {
     NeedStatus.NEEDS_HELP: "🔴",

@@ -550,6 +550,7 @@ class FrontendBoundaryTests(unittest.TestCase):
                 "update_help_point_category",
                 "update_help_point_links",
                 "update_help_point_locations",
+                "update_help_point_affected_areas",
                 "authorize_coordinator_access",
                 "get_public_help_point",
                 "is_database_ready",
@@ -1349,6 +1350,13 @@ class CreateHelpPointResponsivePresentationTests(unittest.TestCase):
                         element.kind == "link"
                         and element.args
                         == ("Abrir administración", synthetic_admin_url)
+                        for element in fake_ui.elements
+                    )
+                )
+                self.assertTrue(
+                    any(
+                        element.kind == "link"
+                        and element.args == ("Volver al inicio", "/")
                         for element in fake_ui.elements
                     )
                 )

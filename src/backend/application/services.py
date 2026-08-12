@@ -207,6 +207,32 @@ class HelpPointService:
         )
         return self._repository.update_help_point(replace(point, locations=updated))
 
+    def update_help_point_affected_areas(
+        self,
+        point: HelpPoint,
+        admin_token: str,
+        affected_areas: tuple[AffectedArea, ...],
+    ) -> HelpPoint:
+        self._require_admin_token(point, admin_token)
+        if not affected_areas:
+            raise ValueError("at least one affected area is required")
+        normalized = []
+        for area in affected_areas:
+            department = area.department.strip()
+            city = (area.city.strip() if area.city is not None else "") or None
+            if department not in AFFECTED_DEPARTMENTS:
+                raise ValueError("affected department is outside active emergency scope")
+            if city is not None and city not in self._location_catalog.list_localities(
+                department
+            ):
+                raise ValueError("affected city does not belong to affected department")
+            normalized.append(AffectedArea(department=department, city=city))
+        updated = tuple(normalized)
+        pairs = tuple((area.department, area.city) for area in updated)
+        if len(set(pairs)) != len(pairs):
+            raise ValueError("affected areas must be unique")
+        return self._repository.update_help_point(replace(point, affected_areas=updated))
+
     def list_active_categories(self) -> Mapping[str, UUID]:
         return self._repository.list_active_categories()
 
