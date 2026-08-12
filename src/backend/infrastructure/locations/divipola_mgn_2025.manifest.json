@@ -1,0 +1,19 @@
+{
+  "canonical_rows_sha256": "a0919a77c799f2518824ffaaad800f9a04233bfd37027a3a106764fdf9484eaa",
+  "counts": {
+    "departments": 33,
+    "islands": 1,
+    "localities": 1122,
+    "municipalities": 1103,
+    "non_municipalized_areas": 18
+  },
+  "schema_version": 1,
+  "source": {
+    "dataset": "DIVIPOLA/MGN 2025",
+    "layer": 317,
+    "publisher": "Departamento Administrativo Nacional de Estadística (DANE)",
+    "retrieved_at": "2026-08-11",
+    "url": "https://geoportal.dane.gov.co/mparcgis/rest/services/Divipola/Serv_DIVIPOLA_MGN_2025/FeatureServer/317/query?where=1%3D1&outFields=DPTO_CCDGO%2CDPTO_CNMBRE%2CMPIO_CDPMP%2CMPIO_CNMBRE%2CMPIO_TIPO&returnGeometry=false&f=json",
+    "version": "2025"
+  }
+}
