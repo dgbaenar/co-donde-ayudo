@@ -17,8 +17,9 @@ ALEMBIC_ROOT = SOURCE_ROOT / "alembic"
 MIGRATION = ALEMBIC_ROOT / "versions/0001_initial_schema.py"
 LOCATION_MIGRATION = ALEMBIC_ROOT / "versions/0002_help_point_locations.py"
 ADDITIONAL_AREAS_MIGRATION = ALEMBIC_ROOT / "versions/0003_help_point_additional_areas.py"
+WIDEN_ALEMBIC_VERSION_MIGRATION = ALEMBIC_ROOT / "versions/0004_widen_alembic_version.py"
 OPTIONAL_AFFECTED_CITY_MIGRATION = (
-    ALEMBIC_ROOT / "versions/0004_help_point_optional_affected_city.py"
+    ALEMBIC_ROOT / "versions/0005_help_point_optional_affected_city.py"
 )
 EXPECTED_TABLES = {"help_points", "need_categories", "needs", "commitments"}
 
@@ -46,6 +47,17 @@ def load_location_migration():
 def load_additional_areas_migration():
     specification = importlib.util.spec_from_file_location(
         "help_point_additional_areas_migration", ADDITIONAL_AREAS_MIGRATION
+    )
+    assert specification is not None
+    assert specification.loader is not None
+    module = importlib.util.module_from_spec(specification)
+    specification.loader.exec_module(module)
+    return module
+
+
+def load_widen_alembic_version_migration():
+    specification = importlib.util.spec_from_file_location(
+        "widen_alembic_version_migration", WIDEN_ALEMBIC_VERSION_MIGRATION
     )
     assert specification is not None
     assert specification.loader is not None
@@ -320,6 +332,35 @@ class MigrationTests(unittest.TestCase):
             ["zonas_adicionales"],
         )
 
+    def test_widen_alembic_version_migration_follows_additional_areas_revision(self) -> None:
+        self.assertTrue(WIDEN_ALEMBIC_VERSION_MIGRATION.is_file())
+        migration = load_widen_alembic_version_migration()
+
+        self.assertEqual(migration.revision, "0004_widen_alembic_version")
+        self.assertEqual(migration.down_revision, "0003_help_point_additional_areas")
+
+    def test_widen_alembic_version_migration_upgrade_widens_version_num_column(self) -> None:
+        migration = load_widen_alembic_version_migration()
+
+        with patch.object(migration, "op") as operations:
+            migration.upgrade()
+
+        [call_args] = operations.alter_column.call_args_list
+        self.assertEqual(call_args.args, ("alembic_version", "version_num"))
+        self.assertEqual(call_args.kwargs["existing_type"].length, 32)
+        self.assertEqual(call_args.kwargs["type_"].length, 500)
+
+    def test_widen_alembic_version_migration_downgrade_restores_original_width(self) -> None:
+        migration = load_widen_alembic_version_migration()
+
+        with patch.object(migration, "op") as operations:
+            migration.downgrade()
+
+        [call_args] = operations.alter_column.call_args_list
+        self.assertEqual(call_args.args, ("alembic_version", "version_num"))
+        self.assertEqual(call_args.kwargs["existing_type"].length, 500)
+        self.assertEqual(call_args.kwargs["type_"].length, 32)
+
     def test_optional_affected_city_migration_is_the_single_alembic_head(self) -> None:
         environment = dict(os.environ)
         environment["PYTHONPATH"] = str(SOURCE_ROOT)
@@ -334,9 +375,9 @@ class MigrationTests(unittest.TestCase):
 
         self.assertEqual(result.returncode, 0, result.stderr)
         heads = [line.split()[0] for line in result.stdout.splitlines() if line.strip()]
-        self.assertEqual(heads, ["0004_help_point_optional_affected_city"])
+        self.assertEqual(heads, ["0005_help_point_optional_affected_city"])
 
-    def test_optional_affected_city_migration_follows_additional_areas_revision_without_new_tables(
+    def test_optional_affected_city_migration_follows_widen_revision_without_new_tables(
         self,
     ) -> None:
         self.assertTrue(OPTIONAL_AFFECTED_CITY_MIGRATION.is_file())
@@ -350,8 +391,8 @@ class MigrationTests(unittest.TestCase):
             and node.func.attr == "create_table"
         ]
 
-        self.assertEqual(migration.revision, "0004_help_point_optional_affected_city")
-        self.assertEqual(migration.down_revision, "0003_help_point_additional_areas")
+        self.assertEqual(migration.revision, "0005_help_point_optional_affected_city")
+        self.assertEqual(migration.down_revision, "0004_widen_alembic_version")
         self.assertEqual(create_table_calls, [])
 
     def test_optional_affected_city_migration_upgrade_relaxes_column_and_constraint(self) -> None:
