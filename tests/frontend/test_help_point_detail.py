@@ -147,6 +147,7 @@ class HelpPointDetailTests(unittest.TestCase):
         self.assertIn("Familias evacuadas reciben apoyo.", labels)
         self.assertIn("Roldanillo, Valle del Cauca", labels)
         self.assertIn("Calle 5 # 10-20, Cali, Valle del Cauca", labels)
+        self.assertFalse(any(label.startswith("También:") for label in labels))
         self.assertIn("🔴 Se necesita Agua", labels)
         self.assertIn(
             "🟡 Hay ayuda en camino — todavía se necesita Alimentos",
@@ -191,6 +192,52 @@ class HelpPointDetailTests(unittest.TestCase):
             center=(3.4516, -76.532),
             zoom=15,
         )
+
+    def test_additional_affected_areas_renders_as_second_line_when_present(self) -> None:
+        point_with_extra_areas = PublicHelpPoint(
+            id=self.point.id,
+            name=self.point.name,
+            description=self.point.description,
+            city=self.point.city,
+            department=self.point.department,
+            address=self.point.address,
+            affected_city=self.point.affected_city,
+            affected_department=self.point.affected_department,
+            latitude=self.point.latitude,
+            longitude=self.point.longitude,
+            active=self.point.active,
+            needs=self.point.needs,
+            additional_affected_areas="Roldanillo y Zarzal",
+        )
+
+        with patch.object(help_point_detail, "render_help_point_map"):
+            help_point_detail.render_help_point_detail_for_path(
+                str(point_with_extra_areas.id),
+                lambda _point_id: point_with_extra_areas,
+                self.categories,
+            )
+
+        labels = [
+            element.args[0]
+            for element in self.fake_ui.elements
+            if element.kind == "label"
+        ]
+        self.assertIn("También: Roldanillo y Zarzal", labels)
+
+    def test_additional_affected_areas_renders_nothing_when_none(self) -> None:
+        with patch.object(help_point_detail, "render_help_point_map"):
+            help_point_detail.render_help_point_detail_for_path(
+                str(self.point.id),
+                lambda _point_id: self.point,
+                self.categories,
+            )
+
+        labels = [
+            element.args[0]
+            for element in self.fake_ui.elements
+            if element.kind == "label"
+        ]
+        self.assertFalse(any(label.startswith("También:") for label in labels))
 
     def test_invalid_or_missing_point_shows_same_generic_message(self) -> None:
         for path_value, getter in (

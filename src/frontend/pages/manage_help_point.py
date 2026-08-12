@@ -17,7 +17,7 @@ AddNeedHandler = Callable[[HelpPoint, str, UUID], HelpPoint]
 RemoveNeedHandler = Callable[[HelpPoint, str, UUID], HelpPoint]
 ChangeNeedStatusHandler = Callable[[HelpPoint, str, UUID, NeedStatus], HelpPoint]
 DeactivateHelpPointHandler = Callable[[HelpPoint, str], HelpPoint]
-UpdateHelpPointInfoHandler = Callable[[HelpPoint, str, str, str], HelpPoint]
+UpdateHelpPointInfoHandler = Callable[[HelpPoint, str, str, str, str | None], HelpPoint]
 
 
 def category_name(categories: Mapping[str, UUID], category_id: UUID) -> str:
@@ -81,9 +81,12 @@ def update_point_info(
     admin_token: str,
     description: str,
     coordinator_contact: str,
+    additional_affected_areas: str | None,
     update_help_point_info: UpdateHelpPointInfoHandler,
 ) -> HelpPoint:
-    return update_help_point_info(point, admin_token, description, coordinator_contact)
+    return update_help_point_info(
+        point, admin_token, description, coordinator_contact, additional_affected_areas
+    )
 
 
 def render_manage_help_point(
@@ -132,6 +135,10 @@ def render_manage_help_point(
                     coordinator_contact = ui.input(
                         "Contacto", value=point.coordinator_contact
                     ).classes("w-full")
+                    additional_affected_areas = ui.textarea(
+                        "¿Hay otras zonas que también recibirán ayuda? (opcional)",
+                        value=point.additional_affected_areas or "",
+                    ).classes("w-full")
                     ui.button(
                         "Guardar información",
                         on_click=lambda: apply(
@@ -140,6 +147,7 @@ def render_manage_help_point(
                                 admin_token,
                                 description.value or "",
                                 coordinator_contact.value or "",
+                                additional_affected_areas.value or None,
                                 update_help_point_info,
                             )
                         ),

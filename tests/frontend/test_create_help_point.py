@@ -140,6 +140,55 @@ class CreateHelpPointTests(unittest.TestCase):
         self.assertEqual(command.coordinator_contact, "Contacto local")
         self.assertEqual(command.category_ids, (self.water_id, self.blanket_id))
 
+    def test_build_command_defaults_blank_additional_affected_areas_to_none(self) -> None:
+        command = build_command(self.values, ("Agua",), self.categories)
+
+        self.assertIsNone(command.additional_affected_areas)
+
+    def test_build_command_strips_whitespace_only_additional_affected_areas_to_none(
+        self,
+    ) -> None:
+        values = FormValues(
+            name=self.values.name,
+            description=self.values.description,
+            affected_city=self.values.affected_city,
+            affected_department=self.values.affected_department,
+            city=self.values.city,
+            department=self.values.department,
+            address=self.values.address,
+            latitude=self.values.latitude,
+            longitude=self.values.longitude,
+            coordinator_name=self.values.coordinator_name,
+            coordinator_contact=self.values.coordinator_contact,
+            additional_affected_areas="   ",
+        )
+
+        command = build_command(values, ("Agua",), self.categories)
+
+        self.assertIsNone(command.additional_affected_areas)
+
+    def test_build_command_includes_stripped_additional_affected_areas_when_provided(
+        self,
+    ) -> None:
+        values = FormValues(
+            name=self.values.name,
+            description=self.values.description,
+            affected_city=self.values.affected_city,
+            affected_department=self.values.affected_department,
+            city=self.values.city,
+            department=self.values.department,
+            address=self.values.address,
+            latitude=self.values.latitude,
+            longitude=self.values.longitude,
+            coordinator_name=self.values.coordinator_name,
+            coordinator_contact=self.values.coordinator_contact,
+            additional_affected_areas="  Roldanillo y Zarzal ",
+        )
+
+        command = build_command(values, ("Agua",), self.categories)
+
+        self.assertEqual(command.additional_affected_areas, "Roldanillo y Zarzal")
+
     def test_build_admin_url_uses_only_configured_origin_and_private_path(self) -> None:
         self.assertEqual(
             create_help_point.build_admin_url(
@@ -320,8 +369,9 @@ class CreateHelpPointResponsivePresentationTests(unittest.TestCase):
             if element.kind == "input" and element.args:
                 if element.args[0] in field_values:
                     element.value = field_values[element.args[0]]
-            elif element.kind == "textarea":
-                element.value = "Familias evacuadas reciben apoyo."
+            elif element.kind == "textarea" and element.args:
+                if element.args[0] == "¿Qué está pasando?":
+                    element.value = "Familias evacuadas reciben apoyo."
 
         select_values = {
             "Departamento afectado": "Valle del Cauca",
@@ -479,6 +529,129 @@ class CreateHelpPointResponsivePresentationTests(unittest.TestCase):
         ]
         self.assertIn("Zona que recibirá la ayuda", labels)
         self.assertIn("Dónde se recibe o coordina la ayuda", labels)
+
+        affected_zone_label_index = fake_ui.elements.index(
+            next(
+                element
+                for element in fake_ui.elements
+                if element.kind == "label"
+                and element.args == ("Zona que recibirá la ayuda",)
+            )
+        )
+        reception_zone_label_index = fake_ui.elements.index(
+            next(
+                element
+                for element in fake_ui.elements
+                if element.kind == "label"
+                and element.args == ("Dónde se recibe o coordina la ayuda",)
+            )
+        )
+        additional_areas = next(
+            element
+            for element in fake_ui.elements
+            if element.kind == "textarea"
+            and element.args
+            == ("¿Hay otras zonas que también recibirán ayuda? (opcional)",)
+        )
+        additional_areas_index = fake_ui.elements.index(additional_areas)
+        self.assertTrue(
+            affected_zone_label_index
+            < additional_areas_index
+            < reception_zone_label_index
+        )
+        self.assertIn("w-full", additional_areas.classes_value)
+
+    def test_publish_sends_stripped_additional_affected_areas_when_field_has_value(
+        self,
+    ) -> None:
+        fake_ui = RecordingUi()
+        original_ui = create_help_point.ui
+        create_help_point.ui = fake_ui
+        create_calls = []
+        category_id = uuid4()
+        try:
+            with patch.object(
+                create_help_point,
+                "render_location_picker",
+                return_value=SimpleNamespace(latitude=3.45, longitude=-76.53),
+            ):
+                create_help_point.render_create_help_point(
+                    {"Agua": category_id},
+                    lambda command: create_calls.append(command)
+                    or SimpleNamespace(admin_token="synthetic-token"),
+                    lambda _name: self.fail("empty custom category must not be created"),
+                    lambda: True,
+                    lambda: ("Valle del Cauca",),
+                    self.list_localities,
+                    lambda: self.AFFECTED_DEPARTMENTS,
+                    lambda *_args: self.fail("geocoder must not run"),
+                    "https://dondeayudo.example",
+                )
+                self.fill_valid_form(fake_ui, need="Agua")
+                additional_areas = next(
+                    element
+                    for element in fake_ui.elements
+                    if element.kind == "textarea"
+                    and element.args
+                    == ("¿Hay otras zonas que también recibirán ayuda? (opcional)",)
+                )
+                additional_areas.value = "  Roldanillo y Zarzal  "
+
+                publish = next(
+                    element
+                    for element in fake_ui.elements
+                    if element.kind == "button"
+                    and element.args == ("Publicar punto de ayuda",)
+                )
+                publish.kwargs["on_click"]()
+        finally:
+            create_help_point.ui = original_ui
+
+        self.assertEqual(len(create_calls), 1)
+        self.assertEqual(
+            create_calls[0].additional_affected_areas, "Roldanillo y Zarzal"
+        )
+
+    def test_publish_sends_none_additional_affected_areas_when_field_is_left_empty(
+        self,
+    ) -> None:
+        fake_ui = RecordingUi()
+        original_ui = create_help_point.ui
+        create_help_point.ui = fake_ui
+        create_calls = []
+        category_id = uuid4()
+        try:
+            with patch.object(
+                create_help_point,
+                "render_location_picker",
+                return_value=SimpleNamespace(latitude=3.45, longitude=-76.53),
+            ):
+                create_help_point.render_create_help_point(
+                    {"Agua": category_id},
+                    lambda command: create_calls.append(command)
+                    or SimpleNamespace(admin_token="synthetic-token"),
+                    lambda _name: self.fail("empty custom category must not be created"),
+                    lambda: True,
+                    lambda: ("Valle del Cauca",),
+                    self.list_localities,
+                    lambda: self.AFFECTED_DEPARTMENTS,
+                    lambda *_args: self.fail("geocoder must not run"),
+                    "https://dondeayudo.example",
+                )
+                self.fill_valid_form(fake_ui, need="Agua")
+
+                publish = next(
+                    element
+                    for element in fake_ui.elements
+                    if element.kind == "button"
+                    and element.args == ("Publicar punto de ayuda",)
+                )
+                publish.kwargs["on_click"]()
+        finally:
+            create_help_point.ui = original_ui
+
+        self.assertEqual(len(create_calls), 1)
+        self.assertIsNone(create_calls[0].additional_affected_areas)
 
     def test_address_search_geocodes_physical_location_and_updates_picker(self) -> None:
         fake_ui = RecordingUi()

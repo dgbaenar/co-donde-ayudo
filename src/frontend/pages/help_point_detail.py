@@ -72,6 +72,10 @@ def render_help_point_detail(
                     ui.label(
                         f"{point.affected_city}, {point.affected_department}"
                     ).classes("text-slate-700")
+                    if point.additional_affected_areas:
+                        ui.label(
+                            f"También: {point.additional_affected_areas}"
+                        ).classes("text-slate-700")
 
                 with ui.column().classes(
                     "w-full gap-2 rounded-2xl border border-slate-200 bg-white p-4"

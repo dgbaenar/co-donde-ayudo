@@ -170,11 +170,11 @@ class ManageHelpPointTests(unittest.TestCase):
         self.assertIs(updated, self.point)
         self.assertEqual(calls, [(self.point, self.token)])
 
-    def test_update_info_delegates_description_contact_and_token(self) -> None:
+    def test_update_info_delegates_description_contact_areas_and_token(self) -> None:
         calls = []
 
-        def update_info(point, token, description, contact):
-            calls.append((point, token, description, contact))
+        def update_info(point, token, description, contact, additional_areas):
+            calls.append((point, token, description, contact, additional_areas))
             return point
 
         updated = update_point_info(
@@ -182,14 +182,195 @@ class ManageHelpPointTests(unittest.TestCase):
             self.token,
             "Nueva descripción",
             "Nuevo contacto",
+            "Roldanillo y Zarzal",
             update_info,
         )
 
         self.assertIs(updated, self.point)
         self.assertEqual(
             calls,
-            [(self.point, self.token, "Nueva descripción", "Nuevo contacto")],
+            [
+                (
+                    self.point,
+                    self.token,
+                    "Nueva descripción",
+                    "Nuevo contacto",
+                    "Roldanillo y Zarzal",
+                )
+            ],
         )
+
+    def test_update_info_delegates_none_additional_areas_when_absent(self) -> None:
+        calls = []
+
+        def update_info(point, token, description, contact, additional_areas):
+            calls.append((point, token, description, contact, additional_areas))
+            return point
+
+        updated = update_point_info(
+            self.point,
+            self.token,
+            "Nueva descripción",
+            "Nuevo contacto",
+            None,
+            update_info,
+        )
+
+        self.assertIs(updated, self.point)
+        self.assertEqual(
+            calls,
+            [(self.point, self.token, "Nueva descripción", "Nuevo contacto", None)],
+        )
+
+
+class ManageHelpPointInfoEditingTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.token = "private-token"
+        self.point = HelpPoint(
+            id=uuid4(),
+            name="Parque Central",
+            description="Familias evacuadas reciben apoyo.",
+            city="Cali",
+            department="Valle del Cauca",
+            address="Calle 5 # 10-20",
+            affected_city="Roldanillo",
+            affected_department="Valle del Cauca",
+            latitude=3.4516,
+            longitude=-76.5320,
+            coordinator_name="Ana",
+            coordinator_contact="Contacto local",
+            admin_token=self.token,
+            active=True,
+            needs=(),
+            additional_affected_areas="Zarzal",
+        )
+        self.fake_ui = RecordingUi()
+        self.original_ui = manage_help_point.ui
+        manage_help_point.ui = self.fake_ui
+        self.addCleanup(setattr, manage_help_point, "ui", self.original_ui)
+
+    def _additional_areas_field(self):
+        return next(
+            element
+            for element in self.fake_ui.elements
+            if element.kind == "textarea"
+            and element.args
+            == ("¿Hay otras zonas que también recibirán ayuda? (opcional)",)
+        )
+
+    def _save_button(self):
+        return next(
+            element
+            for element in self.fake_ui.elements
+            if element.kind == "button" and element.args == ("Guardar información",)
+        )
+
+    def test_additional_areas_field_preloads_current_point_value(self) -> None:
+        manage_help_point.render_manage_help_point(
+            self.point,
+            self.token,
+            {},
+            lambda *_args: self.point,
+            lambda *_args: self.point,
+            lambda *_args: self.point,
+            lambda *_args: self.point,
+            lambda *_args: self.point,
+        )
+
+        self.assertEqual(self._additional_areas_field().value, "Zarzal")
+
+    def test_additional_areas_field_preloads_empty_string_when_point_has_none(
+        self,
+    ) -> None:
+        point_without_extra_areas = HelpPoint(
+            id=self.point.id,
+            name=self.point.name,
+            description=self.point.description,
+            city=self.point.city,
+            department=self.point.department,
+            address=self.point.address,
+            affected_city=self.point.affected_city,
+            affected_department=self.point.affected_department,
+            latitude=self.point.latitude,
+            longitude=self.point.longitude,
+            coordinator_name=self.point.coordinator_name,
+            coordinator_contact=self.point.coordinator_contact,
+            admin_token=self.point.admin_token,
+            active=self.point.active,
+            needs=self.point.needs,
+        )
+
+        manage_help_point.render_manage_help_point(
+            point_without_extra_areas,
+            self.token,
+            {},
+            lambda *_args: point_without_extra_areas,
+            lambda *_args: point_without_extra_areas,
+            lambda *_args: point_without_extra_areas,
+            lambda *_args: point_without_extra_areas,
+            lambda *_args: point_without_extra_areas,
+        )
+
+        self.assertEqual(self._additional_areas_field().value, "")
+
+    def test_saving_sends_edited_additional_areas_value_to_backend_handler(self) -> None:
+        calls = []
+
+        def update_info(point, token, description, contact, additional_areas):
+            calls.append((point, token, description, contact, additional_areas))
+            return point
+
+        manage_help_point.render_manage_help_point(
+            self.point,
+            self.token,
+            {},
+            lambda *_args: self.point,
+            lambda *_args: self.point,
+            lambda *_args: self.point,
+            lambda *_args: self.point,
+            update_info,
+        )
+
+        self._additional_areas_field().value = "Roldanillo y Zarzal"
+        self._save_button().kwargs["on_click"]()
+
+        self.assertEqual(
+            calls,
+            [
+                (
+                    self.point,
+                    self.token,
+                    self.point.description,
+                    self.point.coordinator_contact,
+                    "Roldanillo y Zarzal",
+                )
+            ],
+        )
+
+    def test_saving_with_blank_additional_areas_sends_none_to_backend_handler(
+        self,
+    ) -> None:
+        calls = []
+
+        def update_info(point, token, description, contact, additional_areas):
+            calls.append((point, token, description, contact, additional_areas))
+            return point
+
+        manage_help_point.render_manage_help_point(
+            self.point,
+            self.token,
+            {},
+            lambda *_args: self.point,
+            lambda *_args: self.point,
+            lambda *_args: self.point,
+            lambda *_args: self.point,
+            update_info,
+        )
+
+        self._additional_areas_field().value = ""
+        self._save_button().kwargs["on_click"]()
+
+        self.assertIsNone(calls[0][-1])
 
 
 class ManageHelpPointResponsivePresentationTests(unittest.TestCase):

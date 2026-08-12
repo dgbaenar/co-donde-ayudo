@@ -52,6 +52,7 @@ class FormValues:
     longitude: float | None
     coordinator_name: str
     coordinator_contact: str
+    additional_affected_areas: str | None = ""
 
 
 def build_admin_url(app_base_url: str, admin_path: str) -> str:
@@ -86,6 +87,7 @@ def build_command(
         coordinator_name=values.coordinator_name.strip(),
         coordinator_contact=values.coordinator_contact.strip(),
         category_ids=category_ids,
+        additional_affected_areas=(values.additional_affected_areas or "").strip() or None,
     )
 
 
@@ -188,6 +190,9 @@ def render_create_help_point(
                 label="Ciudad / Municipio afectado",
             ).classes("w-full").props(_BOUNDED_MENU_PROPS)
             affected_city.disable()
+            additional_affected_areas = ui.textarea(
+                "¿Hay otras zonas que también recibirán ayuda? (opcional)"
+            ).classes("w-full")
             ui.label("Dónde se recibe o coordina la ayuda").classes("text-h6")
             department = ui.select(
                 options={
@@ -299,6 +304,7 @@ def render_create_help_point(
                     longitude=location.longitude,
                     coordinator_name=coordinator_name.value or "",
                     coordinator_contact=coordinator_contact.value or "",
+                    additional_affected_areas=additional_affected_areas.value or "",
                 )
                 submitting = True
                 publish_button.disable()
