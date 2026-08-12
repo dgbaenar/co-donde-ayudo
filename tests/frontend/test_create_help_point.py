@@ -33,6 +33,7 @@ class RecordingElement:
         self.update_calls = 0
         self.enable_calls = 0
         self.disable_calls = 0
+        self.handlers = {}
     def __enter__(self): return self
     def __exit__(self, *_args): return False
     def classes(self, value): self.classes_value = value; return self
@@ -45,6 +46,9 @@ class RecordingElement:
     def disable(self): self.disable_calls += 1; self.enabled = False
     def update(self): self.update_calls += 1
     def clear(self): return None
+    def on(self, event_name, handler, *_args, **_kwargs):
+        self.handlers[event_name] = handler
+        return self
 
 
 class RecordingUi:
@@ -58,6 +62,7 @@ class RecordingUi:
         self.elements.append(element)
         return element
     def column(self, *args, **kwargs): return self._record("column", *args, **kwargs)
+    def row(self, *args, **kwargs): return self._record("row", *args, **kwargs)
     def label(self, *args, **kwargs): return self._record("label", *args, **kwargs)
     def input(self, *args, **kwargs): return self._record("input", *args, **kwargs)
     def textarea(self, *args, **kwargs): return self._record("textarea", *args, **kwargs)
@@ -151,30 +156,61 @@ class CreateHelpPointTests(unittest.TestCase):
             self.values,
             ("Agua",),
             self.categories,
-            "",
-            lambda _name: self.fail("empty custom category must not be created"),
+            lambda _name: self.fail("no unknown category must not be created"),
             handler,
         )
 
         self.assertEqual(handler.command.category_ids, (self.water_id,))
         self.assertEqual(admin_path, "/administrar/private-token")
 
-    def test_publish_creates_custom_category_and_includes_its_id_in_command(self) -> None:
+    def test_publish_creates_single_custom_category_and_includes_its_id_in_command(
+        self,
+    ) -> None:
         handler = RecordingHandler()
         custom_category_id = uuid4()
         created_names = []
 
         admin_path = publish_help_point(
             self.values,
-            ("Agua",),
+            ("Agua", "Alimento para mascotas"),
             self.categories,
-            " Alimento para mascotas ",
             lambda name: created_names.append(name) or custom_category_id,
             handler,
         )
 
         self.assertEqual(created_names, ["Alimento para mascotas"])
         self.assertEqual(handler.command.category_ids, (self.water_id, custom_category_id))
+        self.assertEqual(admin_path, "/administrar/private-token")
+
+    def test_publish_creates_multiple_unknown_categories_and_includes_their_ids(
+        self,
+    ) -> None:
+        handler = RecordingHandler()
+        first_custom_id = uuid4()
+        second_custom_id = uuid4()
+        created_names = []
+        custom_ids_by_name = {
+            "Alimento para mascotas": first_custom_id,
+            "Pañales": second_custom_id,
+        }
+
+        def create_custom_category(name: str) -> UUID:
+            created_names.append(name)
+            return custom_ids_by_name[name]
+
+        admin_path = publish_help_point(
+            self.values,
+            ("Agua", "Alimento para mascotas", "Pañales"),
+            self.categories,
+            create_custom_category,
+            handler,
+        )
+
+        self.assertEqual(created_names, ["Alimento para mascotas", "Pañales"])
+        self.assertEqual(
+            handler.command.category_ids,
+            (self.water_id, first_custom_id, second_custom_id),
+        )
         self.assertEqual(admin_path, "/administrar/private-token")
 
     def test_build_command_rejects_unknown_category_before_handler_invocation(self) -> None:
@@ -194,9 +230,8 @@ class CreateHelpPointTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "ubicación"):
             publish_help_point(
                 values,
-                (),
+                ("Nueva categoría", "Otra categoría"),
                 {},
-                "Nueva categoría",
                 lambda name: custom_calls.append(name) or uuid4(),
                 lambda command: create_calls.append(command) or self.fail("must not create"),
             )
@@ -770,6 +805,11 @@ class CreateHelpPointResponsivePresentationTests(unittest.TestCase):
                     if element.kind == "input"
                     and element.args == ("+ Agregar otra necesidad",)
                 ).value = "Necesidad sintética"
+                next(
+                    element
+                    for element in fake_ui.elements
+                    if element.kind == "button" and element.args == ("Agregar",)
+                ).kwargs["on_click"]()
                 self.fill_valid_form(fake_ui)
                 publish = next(
                     element
@@ -971,6 +1011,11 @@ class CreateHelpPointResponsivePresentationTests(unittest.TestCase):
                     if element.kind == "input"
                     and element.args == ("+ Agregar otra necesidad",)
                 ).value = "Necesidad sintética"
+                next(
+                    element
+                    for element in fake_ui.elements
+                    if element.kind == "button" and element.args == ("Agregar",)
+                ).kwargs["on_click"]()
                 publish = next(
                     element
                     for element in fake_ui.elements
@@ -1064,6 +1109,101 @@ class CreateHelpPointResponsivePresentationTests(unittest.TestCase):
         self.assertEqual(create_calls, [])
         self.assertEqual(custom_calls, [])
         self.assertTrue(any(element.kind == "notify" and "ubicación" in element.args[0] for element in fake_ui.elements))
+
+    def test_add_custom_category_button_and_enter_key_update_select_without_backend_calls(
+        self,
+    ) -> None:
+        fake_ui = RecordingUi()
+        original_ui = create_help_point.ui
+        create_help_point.ui = fake_ui
+        category_id = uuid4()
+        try:
+            with patch.object(
+                create_help_point,
+                "render_location_picker",
+                return_value=SimpleNamespace(latitude=3.45, longitude=-76.53),
+            ):
+                create_help_point.render_create_help_point(
+                    {"Agua": category_id},
+                    lambda _command: self.fail("must not publish"),
+                    lambda _name: self.fail("must not create category"),
+                    lambda: True,
+                    lambda: ("Valle del Cauca",),
+                    self.list_localities,
+                    lambda: self.AFFECTED_DEPARTMENTS,
+                    lambda *_args: self.fail("geocoder must not run"),
+                    "https://dondeayudo.example",
+                )
+                custom_category_name = next(
+                    element
+                    for element in fake_ui.elements
+                    if element.kind == "input"
+                    and element.args == ("+ Agregar otra necesidad",)
+                )
+                add_button = next(
+                    element
+                    for element in fake_ui.elements
+                    if element.kind == "button" and element.args == ("Agregar",)
+                )
+                selected_categories = next(
+                    element
+                    for element in fake_ui.elements
+                    if element.kind == "select"
+                    and element.kwargs.get("label") == "Necesidades"
+                )
+
+                # A blank/whitespace-only value is a no-op.
+                custom_category_name.value = "   "
+                add_button.kwargs["on_click"]()
+                self.assertEqual(selected_categories.options, ["Agua"])
+                self.assertIsNone(selected_categories.value)
+
+                # A brand-new custom need is added to both options and value, and
+                # the input is cleared.
+                custom_category_name.value = "  Alimento para mascotas  "
+                add_button.kwargs["on_click"]()
+                self.assertEqual(
+                    selected_categories.options, ["Agua", "Alimento para mascotas"]
+                )
+                self.assertEqual(selected_categories.value, ["Alimento para mascotas"])
+                self.assertEqual(custom_category_name.value, "")
+                self.assertEqual(selected_categories.update_calls, 1)
+
+                # Adding the exact same custom need again warns instead of duplicating.
+                custom_category_name.value = "Alimento para mascotas"
+                add_button.kwargs["on_click"]()
+                self.assertEqual(
+                    selected_categories.options, ["Agua", "Alimento para mascotas"]
+                )
+                self.assertEqual(selected_categories.update_calls, 1)
+                self.assertTrue(
+                    any(
+                        element.kind == "notify"
+                        and element.args == ("Esa necesidad ya está en la lista.",)
+                        for element in fake_ui.elements
+                    )
+                )
+
+                # A name from the original catalog is only selected, never
+                # duplicated into options — triggered here via Enter instead of
+                # the button.
+                custom_category_name.value = "Agua"
+                custom_category_name.handlers["keydown.enter"]()
+                self.assertEqual(
+                    selected_categories.options, ["Agua", "Alimento para mascotas"]
+                )
+                self.assertEqual(
+                    selected_categories.value, ["Alimento para mascotas", "Agua"]
+                )
+
+                # Selecting that same known category again is a no-op.
+                custom_category_name.value = "Agua"
+                custom_category_name.handlers["keydown.enter"]()
+                self.assertEqual(
+                    selected_categories.value, ["Alimento para mascotas", "Agua"]
+                )
+        finally:
+            create_help_point.ui = original_ui
 
 
 if __name__ == "__main__":

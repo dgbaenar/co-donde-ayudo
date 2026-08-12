@@ -29,8 +29,10 @@ _BOUNDED_MENU_PROPS = (
     'popup-content-class=bounded-select-menu '
     'popup-content-style="max-height: 40vh !important; overflow-y: auto"'
 )
+_NEEDS_MULTISELECT_PROPS = f"{_BOUNDED_MENU_PROPS} use-chips"
 _CUSTOM_CATEGORY_PLACEHOLDER_ID = UUID(int=0)
 _PUBLICATION_FAILURE_MESSAGE = "No fue posible publicar el punto. Inténtalo de nuevo."
+_DUPLICATE_CUSTOM_CATEGORY_MESSAGE = "Esa necesidad ya está en la lista."
 
 
 class _PublicationHandlerError(Exception):
@@ -91,26 +93,31 @@ def publish_help_point(
     values: FormValues,
     selected_categories: Sequence[str],
     categories: Mapping[str, UUID],
-    custom_category_name: str,
     create_custom_category: CreateCustomCategoryHandler,
     create_help_point: CreateHelpPointHandler,
 ) -> str:
-    custom_category_name = custom_category_name.strip()
-    if custom_category_name:
-        selected_categories = (*selected_categories, custom_category_name)
+    unknown_names = [name for name in selected_categories if name not in categories]
+    if unknown_names:
+        # Each unknown name gets its own placeholder UUID: CreateHelpPoint rejects
+        # duplicate category IDs, so reusing a single placeholder across two or
+        # more unknown names would make this pre-validation fail spuriously.
+        placeholder_ids = {
+            name: UUID(int=_CUSTOM_CATEGORY_PLACEHOLDER_ID.int + index)
+            for index, name in enumerate(unknown_names)
+        }
         build_command(
             values,
             selected_categories,
-            {
-                **categories,
-                custom_category_name: _CUSTOM_CATEGORY_PLACEHOLDER_ID,
-            },
+            {**categories, **placeholder_ids},
         )
         try:
-            custom_category_id = create_custom_category(custom_category_name)
+            created_ids = [create_custom_category(name) for name in unknown_names]
         except Exception as error:
             raise _PublicationHandlerError from error
-        categories = {**categories, custom_category_name: custom_category_id}
+        categories = {
+            **categories,
+            **{name: category_id for name, category_id in zip(unknown_names, created_ids)},
+        }
 
     command = build_command(values, selected_categories, categories)
     try:
@@ -239,10 +246,35 @@ def render_create_help_point(
                 options=list(categories),
                 label="Necesidades",
                 multiple=True,
-            ).classes("w-full").props(_BOUNDED_MENU_PROPS)
-            custom_category_name = ui.input("+ Agregar otra necesidad").classes(
-                "w-full"
-            )
+            ).classes("w-full").props(_NEEDS_MULTISELECT_PROPS)
+
+            def add_custom_category() -> None:
+                name = (custom_category_name.value or "").strip()
+                if not name:
+                    return
+                if name in categories:
+                    current_values = list(selected_categories.value or ())
+                    if name not in current_values:
+                        current_values.append(name)
+                        selected_categories.value = current_values
+                    custom_category_name.value = ""
+                    return
+                if name in selected_categories.options:
+                    ui.notify(_DUPLICATE_CUSTOM_CATEGORY_MESSAGE, type="warning")
+                    return
+                selected_categories.options = [*selected_categories.options, name]
+                selected_categories.value = [*(selected_categories.value or ()), name]
+                selected_categories.update()
+                custom_category_name.value = ""
+
+            with ui.row().classes("w-full gap-2 items-end flex-nowrap"):
+                custom_category_name = ui.input("+ Agregar otra necesidad").classes(
+                    "w-full"
+                )
+                ui.button("Agregar", on_click=add_custom_category).classes(
+                    "min-h-[44px]"
+                )
+            custom_category_name.on("keydown.enter", add_custom_category)
 
             def submit() -> None:
                 nonlocal submitting, published
@@ -275,7 +307,6 @@ def render_create_help_point(
                         values,
                         selected_categories.value or (),
                         categories,
-                        custom_category_name.value or "",
                         create_custom_category,
                         create_help_point,
                     )
