@@ -283,10 +283,10 @@ def render_create_help_point(
 
             with ui.row().classes("w-full gap-2 items-end flex-nowrap"):
                 custom_category_name = ui.input("+ Agregar otra necesidad").classes(
-                    "w-full"
+                    "flex-1 min-w-0"
                 )
                 ui.button("Agregar", on_click=add_custom_category).classes(
-                    "min-h-[44px]"
+                    "min-h-[44px] shrink-0"
                 )
             custom_category_name.on("keydown.enter", add_custom_category)
 
