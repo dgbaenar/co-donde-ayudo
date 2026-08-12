@@ -1,0 +1,591 @@
+from __future__ import annotations
+
+import unittest
+from pathlib import Path
+from unittest.mock import patch
+from uuid import uuid4
+
+from backend.domain.models import Need, NeedStatus, PublicHelpPoint
+from frontend.pages import home
+from frontend.pages.home import (
+    filter_public_help_points,
+    location_filter_options,
+    status_text,
+)
+
+
+DEPARTMENTS = (
+    "Amazonas",
+    "Antioquia",
+    "Arauca",
+    "Atlántico",
+    "Bogotá, D.C.",
+    "Bolívar",
+    "Boyacá",
+    "Caldas",
+    "Caquetá",
+    "Casanare",
+    "Cauca",
+    "Cesar",
+    "Chocó",
+    "Córdoba",
+    "Cundinamarca",
+    "Guainía",
+    "Guaviare",
+    "Huila",
+    "La Guajira",
+    "Magdalena",
+    "Meta",
+    "Nariño",
+    "Norte de Santander",
+    "Putumayo",
+    "Quindío",
+    "Risaralda",
+    "San Andrés, Providencia y Santa Catalina",
+    "Santander",
+    "Sucre",
+    "Tolima",
+    "Valle del Cauca",
+    "Vaupés",
+    "Vichada",
+)
+
+AFFECTED_DEPARTMENTS = (
+    "Caldas",
+    "Chocó",
+    "Quindío",
+    "Risaralda",
+    "Valle del Cauca",
+)
+
+
+def list_localities(department: str) -> tuple[str, ...]:
+    return {
+        "Antioquia": ("Medellín",),
+        "Chocó": ("Quibdó",),
+        "Quindío": ("Armenia",),
+        "Valle del Cauca": ("Cali", "Palmira", "Roldanillo"),
+    }.get(department, ())
+
+
+class RecordingElement:
+    def __init__(self, owner, kind, *args, **kwargs):
+        self.owner = owner
+        self.kind, self.args, self.kwargs = kind, args, kwargs
+        self.children = []
+        self.value = kwargs.get("value")
+        self.options = kwargs.get("options", args[0] if args else None)
+        self.on_change = kwargs.get("on_change")
+        self.update_calls = 0
+        self.classes_value = ""
+        self.props_value = ""
+        self.enabled = True
+        self.enable_calls = 0
+        self.disable_calls = 0
+
+    def __enter__(self): self.owner.stack.append(self); return self
+    def __exit__(self, *_args): self.owner.stack.pop(); return False
+    def classes(self, value): self.classes_value = value; return self
+    def props(self, value):
+        self.props_value = value
+        if "disable" in value.split():
+            self.enabled = False
+        return self
+    def enable(self): self.enable_calls += 1; self.enabled = True
+    def disable(self): self.disable_calls += 1; self.enabled = False
+    def clear(self):
+        def remove_descendants(element):
+            for child in tuple(element.children):
+                remove_descendants(child)
+                if child in self.owner.elements:
+                    self.owner.elements.remove(child)
+            element.children.clear()
+
+        remove_descendants(self)
+    def update(self): self.update_calls += 1
+
+
+class RecordingUi:
+    def __init__(self): self.elements = []; self.stack = []
+    def _record(self, kind, *args, **kwargs):
+        element = RecordingElement(self, kind, *args, **kwargs)
+        self.elements.append(element)
+        if self.stack:
+            self.stack[-1].children.append(element)
+        return element
+    def column(self, *args, **kwargs): return self._record("column", *args, **kwargs)
+    def row(self, *args, **kwargs): return self._record("row", *args, **kwargs)
+    def grid(self, *args, **kwargs): return self._record("grid", *args, **kwargs)
+    def label(self, *args, **kwargs): return self._record("label", *args, **kwargs)
+    def select(self, *args, **kwargs): return self._record("select", *args, **kwargs)
+    def button(self, *args, **kwargs): return self._record("button", *args, **kwargs)
+    def link(self, *args, **kwargs): return self._record("link", *args, **kwargs)
+    def icon(self, *args, **kwargs): return self._record("icon", *args, **kwargs)
+
+
+class PublicHelpPointFilteringTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.water_id = uuid4()
+        self.blanket_id = uuid4()
+        self.categories = {"Agua": self.water_id, "Cobijas": self.blanket_id}
+        self.cali_water = self.point(
+            name="Parque Central",
+            city="Cali",
+            department="Valle del Cauca",
+            affected_city="Roldanillo",
+            affected_department="Valle del Cauca",
+            active=True,
+            category_id=self.water_id,
+        )
+        self.medellin_blanket = self.point(
+            name="Albergue Norte",
+            city="Medellín",
+            department="Antioquia",
+            affected_city="Armenia",
+            affected_department="Quindío",
+            active=True,
+            category_id=self.blanket_id,
+        )
+        self.inactive = self.point(
+            name="Punto cerrado",
+            city="Cali",
+            department="Valle del Cauca",
+            affected_city="Palmira",
+            affected_department="Valle del Cauca",
+            active=False,
+            category_id=self.water_id,
+        )
+        self.points = (self.cali_water, self.medellin_blanket, self.inactive)
+
+    @staticmethod
+    def point(
+        *,
+        name: str,
+        city: str,
+        department: str,
+        affected_city: str,
+        affected_department: str,
+        active: bool,
+        category_id,
+    ) -> PublicHelpPoint:
+        return PublicHelpPoint(
+            id=uuid4(),
+            name=name,
+            description="Se requiere apoyo.",
+            city=city,
+            department=department,
+            address="Calle 5 # 10-20",
+            affected_city=affected_city,
+            affected_department=affected_department,
+            latitude=3.0,
+            longitude=-76.0,
+            active=active,
+            needs=(Need(id=uuid4(), category_id=category_id, status=NeedStatus.NEEDS_HELP),),
+        )
+
+    def test_without_filters_lists_only_active_points(self) -> None:
+        filtered = filter_public_help_points(self.points)
+
+        self.assertEqual(filtered, (self.cali_water, self.medellin_blanket))
+
+    def test_filters_destination_while_map_coordinates_stay_physical(self) -> None:
+        self.assertEqual(
+            filter_public_help_points(self.points, city="Roldanillo"),
+            (self.cali_water,),
+        )
+        self.assertEqual((self.cali_water.latitude, self.cali_water.longitude), (3.0, -76.0))
+
+    def test_location_filter_options_come_from_injected_catalog(self) -> None:
+        self.assertEqual(
+            location_filter_options(lambda: AFFECTED_DEPARTMENTS, list_localities),
+            (AFFECTED_DEPARTMENTS, ()),
+        )
+        self.assertEqual(
+            location_filter_options(
+                lambda: AFFECTED_DEPARTMENTS,
+                list_localities,
+                department="Valle del Cauca",
+            )[1],
+            ("Cali", "Palmira", "Roldanillo"),
+        )
+        self.assertEqual(
+            filter_public_help_points(self.points, department="Quindío"),
+            (self.medellin_blanket,),
+        )
+        self.assertEqual(
+            filter_public_help_points(
+                self.points,
+                city="Roldanillo",
+                department="Valle del Cauca",
+            ),
+            (self.cali_water,),
+        )
+
+class NeedStatusTextTests(unittest.TestCase):
+    def test_uses_the_exact_public_text_for_each_need_status(self) -> None:
+        self.assertEqual(status_text(NeedStatus.NEEDS_HELP), "🔴 Se necesita")
+        self.assertEqual(
+            status_text(NeedStatus.HELP_ON_THE_WAY),
+            "🟡 Hay ayuda en camino — todavía se necesita",
+        )
+        self.assertEqual(status_text(NeedStatus.COVERED), "🟢 Cubierto — no enviar más")
+
+
+class HomeBrandingTests(unittest.TestCase):
+    def test_uses_one_exact_public_title_without_duplicate_brand_label(self) -> None:
+        source = (
+            Path(__file__).resolve().parents[2] / "src/frontend/pages/home.py"
+        ).read_text(encoding="utf-8")
+
+        self.assertEqual(source.count('ui.label("¿Dónde ayudo?")'), 1)
+        self.assertNotIn('ui.label("Dónde Ayudo")', source)
+        self.assertNotIn("Ayuda Colombia", source)
+
+
+class HomeResponsivePresentationTests(unittest.TestCase):
+    def test_renders_polished_defaults_count_cta_and_no_apply_button(self) -> None:
+        fake_ui = RecordingUi()
+        original_ui = home.ui
+        home.ui = fake_ui
+        rendered_map_points = []
+        try:
+            with patch.object(
+                home,
+                "render_help_point_map",
+                side_effect=lambda points, _categories: rendered_map_points.append(tuple(points)),
+                create=True,
+            ):
+                home.render_home((), {}, lambda: AFFECTED_DEPARTMENTS, list_localities)
+        finally:
+            home.ui = original_ui
+
+        self.assertTrue(any(element.kind == "link" and element.args == ("Coordinar un punto", "/acceso") for element in fake_ui.elements))
+        self.assertTrue(any(element.kind == "label" and element.args == ("Todavía no hay puntos de ayuda activos.",) for element in fake_ui.elements))
+        self.assertTrue(any(element.kind == "label" and element.args == ("Filtrar por zona afectada",) for element in fake_ui.elements))
+        visible_labels = [
+            element.args[0]
+            for element in fake_ui.elements
+            if element.kind == "label" and element.args
+        ]
+        with self.subTest("single public title"):
+            self.assertEqual(visible_labels.count("¿Dónde ayudo?"), 1)
+            self.assertNotIn("Dónde Ayudo", visible_labels)
+            self.assertNotIn("¿Dónde necesitan ayuda?", visible_labels)
+        self.assertTrue(any(element.kind == "label" and element.args == ("Explora el mapa o revisa la lista de puntos activos.",) for element in fake_ui.elements))
+        self.assertTrue(any(element.kind == "label" and element.args == ("Puntos que necesitan ayuda — 0 resultados",) for element in fake_ui.elements))
+        self.assertEqual(rendered_map_points, [()])
+        selects = [element for element in fake_ui.elements if element.kind == "select"]
+        self.assertEqual(
+            {element.kwargs["label"] for element in selects},
+            {"Ciudad / Municipio", "Departamento"},
+        )
+        department = next(element for element in selects if element.kwargs["label"] == "Departamento")
+        city = next(element for element in selects if element.kwargs["label"] == "Ciudad / Municipio")
+        self.assertEqual(tuple(department.options)[1:], AFFECTED_DEPARTMENTS)
+        self.assertEqual(
+            city.options,
+            {"": "Selecciona primero un departamento"},
+        )
+        self.assertEqual(department.value, "")
+        self.assertEqual(city.value, "")
+        self.assertFalse(city.enabled)
+        self.assertNotIn("disable", city.props_value.split())
+        self.assertEqual(city.disable_calls, 1)
+        self.assertTrue(all("w-full" in element.classes_value for element in selects))
+        with self.subTest("white rounded selectors"):
+            self.assertTrue(all("bg-white" in element.classes_value for element in selects))
+            self.assertTrue(all("rounded-lg" in element.classes_value for element in selects))
+        self.assertTrue(all("outlined" in element.props_value for element in selects))
+        self.assertTrue(all("dense" in element.props_value for element in selects))
+        self.assertFalse(any(element.kind == "button" and element.args == ("Aplicar filtros",) for element in fake_ui.elements))
+        grid = next(element for element in fake_ui.elements if element.kind == "grid")
+        self.assertNotIn("columns", grid.kwargs)
+        self.assertIn("lg:grid-cols-[3fr_2fr]", grid.classes_value)
+        self.assertTrue(any(element.kind == "column" and "min-h-screen" in element.classes_value for element in fake_ui.elements))
+        self.assertTrue(any(element.kind == "column" and "max-w-7xl" in element.classes_value for element in fake_ui.elements))
+        self.assertTrue(any(element.kind == "column" and "bg-white" in element.classes_value for element in fake_ui.elements))
+        filter_panel = next(
+            element
+            for element in fake_ui.elements
+            if element.kind == "column" and "bg-slate-100" in element.classes_value
+        )
+        with self.subTest("borderless slate filter panel"):
+            self.assertNotIn("border", filter_panel.classes_value.split())
+            self.assertFalse(
+                any(token.startswith("border-") for token in filter_panel.classes_value.split())
+            )
+        self.assertFalse(any("bg-emerald-50" in element.classes_value for element in fake_ui.elements))
+        self.assertTrue(all("color=blue-grey-9" in element.props_value for element in selects))
+        self.assertTrue(any(element.kind == "icon" and element.args == ("location_on",) for element in fake_ui.elements))
+        cta = next(element for element in fake_ui.elements if element.kind == "link" and element.args == ("Coordinar un punto", "/acceso"))
+        self.assertIn("text-emerald", cta.classes_value)
+        filters_row = next(
+            element
+            for element in fake_ui.elements
+            if element.kind == "row"
+            and department in element.children
+            and city in element.children
+        )
+        self.assertIn("sm:flex-nowrap", filters_row.classes_value)
+        self.assertIn("sm:w-auto", department.classes_value)
+        self.assertIn("sm:flex-1", city.classes_value)
+
+    def test_initial_map_and_compact_list_use_active_points_and_public_detail_links(self) -> None:
+        category_id = uuid4()
+        active = PublicHelpPoint(
+            id=uuid4(), name="Parque", description="Apoyo", city="Cali",
+            department="Valle del Cauca", address="Calle 5 # 10-20",
+            affected_city="Roldanillo", affected_department="Valle del Cauca",
+            latitude=3.4, longitude=-76.5, active=True,
+            needs=(Need(id=uuid4(), category_id=category_id, status=NeedStatus.NEEDS_HELP),),
+        )
+        inactive = PublicHelpPoint(
+            id=uuid4(), name="Cerrado", description="Cerrado", city="Bogotá",
+            department="Cundinamarca", address=None,
+            affected_city="Armenia", affected_department="Quindío",
+            latitude=4.6, longitude=-74.1, active=False,
+            needs=(),
+        )
+        fake_ui = RecordingUi()
+        original_ui = home.ui
+        home.ui = fake_ui
+        mapped = []
+        try:
+            with patch.object(
+                home,
+                "render_help_point_map",
+                side_effect=lambda points, _categories: mapped.append(tuple(points)),
+                create=True,
+            ):
+                home.render_home(
+                    (active, inactive),
+                    {"Agua": category_id},
+                    lambda: AFFECTED_DEPARTMENTS,
+                    list_localities,
+                )
+        finally:
+            home.ui = original_ui
+
+        self.assertEqual(mapped, [(active,)])
+        self.assertTrue(any(element.kind == "link" and (element.kwargs.get("target") == f"/puntos/{active.id}" or element.args == ("Ver punto", f"/puntos/{active.id}")) for element in fake_ui.elements))
+        self.assertFalse(any(element.kind == "link" and str(inactive.id) in repr((element.args, element.kwargs)) for element in fake_ui.elements))
+        city = next(element for element in fake_ui.elements if element.kind == "select" and element.kwargs["label"] == "Ciudad / Municipio")
+        department = next(element for element in fake_ui.elements if element.kind == "select" and element.kwargs["label"] == "Departamento")
+        self.assertEqual(city.options, {"": "Selecciona primero un departamento"})
+        self.assertEqual(tuple(department.options)[1:], AFFECTED_DEPARTMENTS)
+        labels = [element.args[0] for element in fake_ui.elements if element.kind == "label"]
+        self.assertIn("Ayuda destinada a: Roldanillo, Valle del Cauca", labels)
+        self.assertIn(
+            "Recibe ayuda en: Calle 5 # 10-20, Cali, Valle del Cauca",
+            labels,
+        )
+
+    def test_department_change_replaces_city_options_and_refreshes_map_immediately(self) -> None:
+        fake_ui = RecordingUi()
+        original_ui = home.ui
+        home.ui = fake_ui
+        rendered_map_points = []
+        try:
+            with patch.object(
+                home,
+                "render_help_point_map",
+                side_effect=lambda points, _categories: rendered_map_points.append(tuple(points)),
+            ):
+                points_test = PublicHelpPointFilteringTests()
+                points_test.setUp()
+                home.render_home(
+                    points_test.points,
+                    points_test.categories,
+                    lambda: AFFECTED_DEPARTMENTS,
+                    list_localities,
+                )
+                department = next(element for element in fake_ui.elements if element.kind == "select" and element.kwargs["label"] == "Departamento")
+                city = next(element for element in fake_ui.elements if element.kind == "select" and element.kwargs["label"] == "Ciudad / Municipio")
+                department.value = "Valle del Cauca"
+                department.on_change()
+        finally:
+            home.ui = original_ui
+
+        self.assertEqual(
+            city.options,
+            {
+                "": "Todas las ciudades / municipios",
+                "Cali": "Cali",
+                "Palmira": "Palmira",
+                "Roldanillo": "Roldanillo",
+            },
+        )
+        self.assertEqual(city.value, "")
+        self.assertTrue(city.enabled)
+        self.assertEqual(city.enable_calls, 1)
+        self.assertEqual(city.update_calls, 1)
+        self.assertEqual(rendered_map_points[-1], (points_test.cali_water,))
+
+        city.value = "Cali"
+        department.value = ""
+        department.on_change()
+
+        self.assertEqual(
+            city.options,
+            {"": "Selecciona primero un departamento"},
+        )
+        self.assertEqual(city.value, "")
+        self.assertFalse(city.enabled)
+        self.assertEqual(city.disable_calls, 2)
+
+    def test_result_row_shows_at_most_three_needs_and_remainder_count(self) -> None:
+        need_specs = [
+            ("Cubierto B", NeedStatus.COVERED),
+            ("En camino C", NeedStatus.HELP_ON_THE_WAY),
+            ("Urgente Z", NeedStatus.NEEDS_HELP),
+            ("Urgente A", NeedStatus.NEEDS_HELP),
+        ]
+        category_ids = [uuid4() for _ in need_specs]
+        point = PublicHelpPoint(
+            id=uuid4(), name="Parque", description="Apoyo", city="Cali",
+            department="Valle del Cauca", address="Calle 5 # 10-20",
+            affected_city="Roldanillo", affected_department="Valle del Cauca",
+            latitude=3.4, longitude=-76.5, active=True,
+            needs=tuple(Need(id=uuid4(), category_id=category_id, status=status)
+                        for category_id, (_, status) in zip(category_ids, need_specs)),
+        )
+        categories = {name: category_id for category_id, (name, _status) in zip(category_ids, need_specs)}
+        fake_ui = RecordingUi()
+        original_ui = home.ui
+        home.ui = fake_ui
+        try:
+            with patch.object(home, "render_help_point_map"):
+                home.render_home(
+                    (point,),
+                    categories,
+                    lambda: AFFECTED_DEPARTMENTS,
+                    list_localities,
+                )
+        finally:
+            home.ui = original_ui
+
+        labels = [element.args[0] for element in fake_ui.elements if element.kind == "label"]
+        need_labels = [label for label in labels if label.startswith(("🔴", "🟡", "🟢"))]
+        self.assertEqual(
+            need_labels,
+            [
+                "🔴 Se necesita Urgente A",
+                "🔴 Se necesita Urgente Z",
+                "🟡 Hay ayuda en camino — todavía se necesita En camino C",
+            ],
+        )
+        self.assertIn("+1 necesidades", labels)
+        detail_link = next(
+            element
+            for element in fake_ui.elements
+            if element.kind == "link"
+            and element.kwargs.get("target") == f"/puntos/{point.id}"
+        )
+        self.assertIn("w-full", detail_link.classes_value)
+        descendants = []
+
+        def collect(element):
+            for child in element.children:
+                descendants.append(child)
+                collect(child)
+
+        collect(detail_link)
+        wrapped_labels = [element.args[0] for element in descendants if element.kind == "label"]
+        self.assertIn("Parque", wrapped_labels)
+        self.assertIn("Ayuda destinada a: Roldanillo, Valle del Cauca", wrapped_labels)
+        self.assertIn(
+            "Recibe ayuda en: Calle 5 # 10-20, Cali, Valle del Cauca",
+            wrapped_labels,
+        )
+        self.assertIn("Apoyo", wrapped_labels)
+        self.assertTrue(
+            any(element.kind == "icon" and element.args == ("chevron_right",) for element in descendants)
+        )
+        row = next(element for element in descendants if element.kind == "row")
+        self.assertIn("bg-white", detail_link.classes_value + " " + row.classes_value)
+
+    def test_consecutive_filter_changes_keep_map_links_and_count_synchronized_including_zero(self) -> None:
+        category_id = uuid4()
+
+        def point(name, city, department, affected_city, affected_department):
+            return PublicHelpPoint(
+                id=uuid4(), name=name, description="Apoyo", city=city,
+                department=department, address="Calle 5",
+                affected_city=affected_city,
+                affected_department=affected_department,
+                latitude=4.0, longitude=-75.0, active=True,
+                needs=(Need(id=uuid4(), category_id=category_id, status=NeedStatus.NEEDS_HELP),),
+            )
+
+        cali = point("Cali", "Cali", "Valle del Cauca", "Roldanillo", "Valle del Cauca")
+        palmira = point("Palmira", "Cali", "Valle del Cauca", "Palmira", "Valle del Cauca")
+        medellin = point("Medellín", "Medellín", "Antioquia", "Quibdó", "Chocó")
+        fake_ui = RecordingUi()
+        original_ui = home.ui
+        home.ui = fake_ui
+        mapped = []
+        try:
+            with patch.object(
+                home,
+                "render_help_point_map",
+                side_effect=lambda points, _categories: mapped.append(tuple(points)),
+            ):
+                home.render_home(
+                    (cali, palmira, medellin),
+                    {"Agua": category_id},
+                    lambda: AFFECTED_DEPARTMENTS,
+                    list_localities,
+                )
+                department = next(element for element in fake_ui.elements if element.kind == "select" and element.kwargs["label"] == "Departamento")
+                city = next(element for element in fake_ui.elements if element.kind == "select" and element.kwargs["label"] == "Ciudad / Municipio")
+
+                def assert_visible(expected_points):
+                    expected_ids = {str(item.id) for item in expected_points}
+                    link_ids = {
+                        element.kwargs["target"].rsplit("/", 1)[-1]
+                        for element in fake_ui.elements
+                        if element.kind == "link"
+                        and element.kwargs.get("target", "").startswith("/puntos/")
+                    }
+                    count = next(
+                        element.args[0]
+                        for element in fake_ui.elements
+                        if element.kind == "label"
+                        and element.args[0].startswith("Puntos que necesitan ayuda —")
+                    )
+                    self.assertEqual({str(item.id) for item in mapped[-1]}, expected_ids)
+                    self.assertEqual(link_ids, expected_ids)
+                    self.assertEqual(count, f"Puntos que necesitan ayuda — {len(expected_ids)} resultados")
+
+                assert_visible((cali, palmira, medellin))
+                department.value = "Valle del Cauca"
+                department.on_change()
+                assert_visible((cali, palmira))
+                city.value = "Palmira"
+                city.on_change()
+                assert_visible((palmira,))
+                department.value = "Chocó"
+                department.on_change()
+                self.assertEqual(city.value, "")
+                assert_visible((medellin,))
+                city.value = "Cali"
+                city.on_change()
+                assert_visible(())
+        finally:
+            home.ui = original_ui
+
+        self.assertTrue(
+            any(
+                element.kind == "label"
+                and element.args
+                == (
+                    "No encontramos puntos en esta ubicación. "
+                    "Prueba con otro departamento o ciudad / municipio.",
+                )
+                for element in fake_ui.elements
+            )
+        )
+
+
+if __name__ == "__main__":
+    unittest.main()
