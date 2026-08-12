@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import dataclasses
 import unittest
+from datetime import UTC, datetime
 from uuid import uuid4
 
 from backend.application.services import HelpPointService
 from backend.domain.emergency_scope import AFFECTED_DEPARTMENTS, list_affected_departments
-from backend.domain.models import CreateHelpPoint, NeedStatus
+from backend.domain.models import Commitment, CreateHelpPoint, NeedStatus
 
 
 class FakeRepository:
@@ -18,6 +19,9 @@ class FakeRepository:
         self.managed_point = None
         self.custom_category_id = uuid4()
         self.custom_category_name = None
+        self.point_by_need_id = None
+        self.created_commitment_args = None
+        self.commitment_to_return = None
 
     def create_help_point(self, point):
         self.created = point
@@ -36,9 +40,48 @@ class FakeRepository:
     def get_help_point_by_admin_token(self, admin_token):
         return self.managed_point
 
+    def get_help_point_by_need_id(self, need_id):
+        return self.point_by_need_id
+
     def create_custom_category(self, name):
         self.custom_category_name = name
         return self.custom_category_id
+
+    def create_commitment(self, need_id, name, note):
+        point = self.point_by_need_id
+        need = next((n for n in point.needs if n.id == need_id), None) if point else None
+        if need is None:
+            raise KeyError(need_id)
+        if need.status is NeedStatus.COVERED:
+            raise ValueError("need is already covered")
+        self.created_commitment_args = (need_id, name, note)
+        commitment = self.commitment_to_return or Commitment(
+            id=uuid4(),
+            need_id=need_id,
+            name=name,
+            note=note,
+            active=True,
+            created_at=datetime(2026, 8, 11, tzinfo=UTC),
+        )
+        commitments = (*need.commitments, commitment)
+        updated_need = dataclasses.replace(
+            need,
+            commitments=commitments,
+            active_commitment_count=sum(1 for c in commitments if c.active),
+        )
+        transitioned = need.status is NeedStatus.NEEDS_HELP
+        if transitioned:
+            updated_need = dataclasses.replace(
+                updated_need, status=NeedStatus.HELP_ON_THE_WAY
+            )
+        updated_point = dataclasses.replace(
+            point,
+            needs=tuple(updated_need if n.id == need_id else n for n in point.needs),
+        )
+        self.point_by_need_id = updated_point
+        if transitioned:
+            self.updated = updated_point
+        return commitment
 
 
 class FakeLocationCatalog:
@@ -345,6 +388,180 @@ class HelpPointServiceTests(unittest.TestCase):
             self.service.update_help_point_info(
                 point, point.admin_token, "Descripción", "Contacto", "a" * 501
             )
+
+    def test_create_commitment_persists_trimmed_name_and_note_for_a_needs_help_need(self) -> None:
+        point = self.service.create_help_point(self.command()).point
+        self.repository.point_by_need_id = point
+        need_id = point.needs[0].id
+
+        result = self.service.create_commitment(need_id, "  Ana  ", "  Voy para allá.  ")
+
+        self.assertEqual(self.repository.created_commitment_args, (need_id, "Ana", "Voy para allá."))
+        self.assertEqual(result.id, need_id)
+        self.assertEqual(len(result.commitments), 1)
+        commitment = result.commitments[0]
+        self.assertEqual(commitment.need_id, need_id)
+        self.assertEqual(commitment.name, "Ana")
+        self.assertEqual(commitment.note, "Voy para allá.")
+        self.assertTrue(commitment.active)
+
+    def test_create_commitment_increments_active_commitment_count_from_zero(self) -> None:
+        point = self.service.create_help_point(self.command()).point
+        self.repository.point_by_need_id = point
+        need_id = point.needs[0].id
+        self.assertEqual(point.needs[0].active_commitment_count, 0)
+
+        result = self.service.create_commitment(need_id, "Ana", None)
+
+        self.assertEqual(result.active_commitment_count, 1)
+
+    def test_create_commitment_increments_active_commitment_count_from_existing_value(
+        self,
+    ) -> None:
+        point = self.service.create_help_point(self.command()).point
+        self.repository.point_by_need_id = point
+        need_id = point.needs[0].id
+        first_commitment = self.service.create_commitment(need_id, "Ana", None)
+        self.assertEqual(first_commitment.active_commitment_count, 1)
+        point_with_one_commitment = dataclasses.replace(
+            point,
+            needs=(first_commitment, *point.needs[1:]),
+        )
+        self.repository.point_by_need_id = point_with_one_commitment
+
+        second_commitment = self.service.create_commitment(need_id, "Luis", None)
+
+        self.assertEqual(second_commitment.active_commitment_count, 2)
+        self.assertEqual(len(second_commitment.commitments), 2)
+
+    def test_create_commitment_on_needs_help_need_transitions_to_help_on_the_way_and_persists(
+        self,
+    ) -> None:
+        point = self.service.create_help_point(self.command()).point
+        self.repository.point_by_need_id = point
+        need_id = point.needs[0].id
+        self.assertEqual(point.needs[0].status, NeedStatus.NEEDS_HELP)
+
+        result = self.service.create_commitment(need_id, "Ana", None)
+
+        self.assertEqual(result.status, NeedStatus.HELP_ON_THE_WAY)
+        self.assertIsNotNone(self.repository.updated)
+        persisted_need = next(need for need in self.repository.updated.needs if need.id == need_id)
+        self.assertEqual(persisted_need.status, NeedStatus.HELP_ON_THE_WAY)
+        self.assertEqual(len(persisted_need.commitments), 1)
+
+    def test_create_commitment_accepts_missing_note_and_normalizes_blank_note_to_none(self) -> None:
+        point = self.service.create_help_point(self.command()).point
+        self.repository.point_by_need_id = point
+        need_id = point.needs[0].id
+
+        self.service.create_commitment(need_id, "Ana", None)
+        self.assertEqual(self.repository.created_commitment_args, (need_id, "Ana", None))
+
+        self.service.create_commitment(need_id, "Ana", "   ")
+        self.assertEqual(self.repository.created_commitment_args, (need_id, "Ana", None))
+
+    def test_create_commitment_rejects_covered_need(self) -> None:
+        point = self.service.create_help_point(self.command()).point
+        need_id = point.needs[0].id
+        covered = self.service.change_need_status(
+            point, point.admin_token, need_id, NeedStatus.COVERED
+        )
+        self.repository.point_by_need_id = covered
+        updated_after_status_change = self.repository.updated
+
+        with self.assertRaisesRegex(ValueError, "covered"):
+            self.service.create_commitment(need_id, "Ana", None)
+
+        self.assertIsNone(self.repository.created_commitment_args)
+        self.assertIs(self.repository.updated, updated_after_status_change)
+
+    def test_create_commitment_on_help_on_the_way_need_keeps_status_and_skips_persistence(
+        self,
+    ) -> None:
+        point = self.service.create_help_point(self.command()).point
+        need_id = point.needs[0].id
+        in_progress = self.service.change_need_status(
+            point, point.admin_token, need_id, NeedStatus.HELP_ON_THE_WAY
+        )
+        self.repository.point_by_need_id = in_progress
+        updated_after_status_change = self.repository.updated
+
+        result = self.service.create_commitment(need_id, "Ana", None)
+
+        self.assertEqual(self.repository.created_commitment_args, (need_id, "Ana", None))
+        self.assertEqual(result.status, NeedStatus.HELP_ON_THE_WAY)
+        self.assertEqual(len(result.commitments), 1)
+        self.assertIs(self.repository.updated, updated_after_status_change)
+
+    def test_create_commitment_rejects_unknown_need_id(self) -> None:
+        self.repository.point_by_need_id = None
+
+        with self.assertRaisesRegex(ValueError, "need not found"):
+            self.service.create_commitment(uuid4(), "Ana", None)
+
+    def test_create_commitment_rejects_need_belonging_to_an_inactive_point(self) -> None:
+        point = self.service.create_help_point(self.command()).point
+        need_id = point.needs[0].id
+        inactive_point = self.service.deactivate_help_point(point, point.admin_token)
+        self.repository.point_by_need_id = inactive_point
+
+        with self.assertRaisesRegex(ValueError, "need not found"):
+            self.service.create_commitment(need_id, "Ana", None)
+
+    def test_create_commitment_rejects_need_id_missing_from_returned_point(self) -> None:
+        point = self.service.create_help_point(self.command()).point
+        self.repository.point_by_need_id = point
+
+        with self.assertRaisesRegex(ValueError, "need not found"):
+            self.service.create_commitment(uuid4(), "Ana", None)
+
+    def test_create_commitment_requires_a_name_and_enforces_max_lengths(self) -> None:
+        point = self.service.create_help_point(self.command()).point
+        self.repository.point_by_need_id = point
+        need_id = point.needs[0].id
+
+        with self.assertRaisesRegex(ValueError, "name"):
+            self.service.create_commitment(need_id, "   ", None)
+        with self.assertRaisesRegex(ValueError, "name"):
+            self.service.create_commitment(need_id, "a" * 121, None)
+        with self.assertRaisesRegex(ValueError, "note"):
+            self.service.create_commitment(need_id, "Ana", "a" * 501)
+
+    def test_to_public_never_exposes_commitments_even_when_need_has_some(self) -> None:
+        point = self.service.create_help_point(self.command()).point
+        commitment = Commitment(
+            id=uuid4(),
+            need_id=point.needs[0].id,
+            name="Ana",
+            note="Voy para allá.",
+            active=True,
+            created_at=datetime(2026, 8, 11, tzinfo=UTC),
+        )
+        point_with_commitment = dataclasses.replace(
+            point,
+            needs=(dataclasses.replace(point.needs[0], commitments=(commitment,)),),
+        )
+
+        public = self.service.to_public(point_with_commitment)
+
+        self.assertEqual(public.needs[0].commitments, ())
+        public_fields = {field.name for field in dataclasses.fields(public.needs[0])}
+        self.assertIn("commitments", public_fields)
+
+    def test_to_public_keeps_active_commitment_count_while_hiding_commitments(self) -> None:
+        point = self.service.create_help_point(self.command()).point
+        point_with_count = dataclasses.replace(
+            point,
+            needs=(
+                dataclasses.replace(point.needs[0], active_commitment_count=3),
+            ),
+        )
+
+        public = self.service.to_public(point_with_count)
+
+        self.assertEqual(public.needs[0].commitments, ())
+        self.assertEqual(public.needs[0].active_commitment_count, 3)
 
 
 if __name__ == "__main__":

@@ -50,6 +50,7 @@ def build_runtime(settings: ApplicationSettings) -> tuple[str, bool]:
         authorize_coordinator_access=access_service.authorize,
         get_public_help_point=service.get_public_help_point,
         is_database_ready=is_database_ready,
+        create_commitment=service.create_commitment,
     )
     return (
         settings.app_session_secret.get_secret_value(),

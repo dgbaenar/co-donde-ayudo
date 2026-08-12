@@ -13,15 +13,19 @@ from backend.domain.models import NeedStatus, PublicHelpPoint
 
 COLOMBIA_CENTER = (4.5709, -74.2973)
 
-_STATUS_TEXT = {
-    NeedStatus.NEEDS_HELP: "🔴 Se necesita",
-    NeedStatus.HELP_ON_THE_WAY: "🟡 Hay ayuda en camino — todavía se necesita",
-    NeedStatus.COVERED: "🟢 Cubierto — no enviar más",
+_STATUS_EMOJI = {
+    NeedStatus.NEEDS_HELP: "🔴",
+    NeedStatus.HELP_ON_THE_WAY: "🟡",
+    NeedStatus.COVERED: "🟢",
+}
+_STATUS_SUFFIX = {
+    NeedStatus.COVERED: " — no enviar más",
 }
 
 
-def status_text(status: NeedStatus) -> str:
-    return _STATUS_TEXT[status]
+def status_line(status: NeedStatus, name: str) -> str:
+    """Return the emoji + need name, with a warning suffix only for COVERED."""
+    return f"{_STATUS_EMOJI[status]} {name}{_STATUS_SUFFIX.get(status, '')}"
 
 
 def build_popup_html(
@@ -32,8 +36,7 @@ def build_popup_html(
     category_names = {category_id: name for name, category_id in categories.items()}
     needs = "".join(
         "<li>"
-        f"{escape(status_text(need.status))} "
-        f"{escape(category_names.get(need.category_id, 'Necesidad'))}"
+        f"{status_line(need.status, escape(category_names.get(need.category_id, 'Necesidad')))}"
         "</li>"
         for need in point.needs
     )

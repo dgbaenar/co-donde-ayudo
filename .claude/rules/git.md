@@ -12,6 +12,8 @@ requests.
   intended operation; preserve unrelated user changes.
 - Base commit and pull-request text only on the actual inspected diff and current verification.
 - Use non-interactive commands and report the exact mutation performed and its result.
+- Never add a `Co-Authored-By: Claude ...` (or any Anthropic/AI-attribution) trailer, footer, or
+  line to a commit message or pull-request description. Commit messages describe the change only.
 
 ## Approval boundaries
 

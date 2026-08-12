@@ -130,7 +130,12 @@ def render_manage_help_point(
                         "text-lg font-semibold text-slate-900"
                     ).props("role=heading aria-level=2")
                     description = ui.textarea(
-                        "¿Qué está pasando?", value=point.description
+                        "¿Qué está pasando en este punto?",
+                        value=point.description,
+                        placeholder=(
+                            "Ej: Varias familias fueron evacuadas y estamos "
+                            "organizando ayuda desde este parque."
+                        ),
                     ).classes("w-full")
                     coordinator_contact = ui.input(
                         "Contacto", value=point.coordinator_contact
@@ -151,9 +156,9 @@ def render_manage_help_point(
                                 update_help_point_info,
                             )
                         ),
-                    ).classes("w-full min-h-[44px]").props(
-                        "unelevated color=green-9"
-                    )
+                    ).classes(
+                        "w-full min-h-[44px]"
+                    ).props("unelevated color=primary")
 
                 with ui.card().classes(
                     "w-full gap-3 rounded-2xl border border-slate-200 bg-white p-4"
@@ -161,6 +166,17 @@ def render_manage_help_point(
                     ui.label("Necesidades").classes(
                         "text-lg font-semibold text-slate-900"
                     ).props("role=heading aria-level=2")
+                    with ui.row().classes(
+                        "w-full items-start gap-2 rounded-lg border "
+                        "border-slate-200 bg-slate-50 p-2"
+                    ):
+                        ui.label("ℹ️").classes("text-xs leading-relaxed")
+                        ui.label(
+                            "Quien confirma ayuda solo activa el estado "
+                            "amarillo. Solo quien tenga este enlace de "
+                            "administración puede marcar una necesidad como "
+                            "cubierto."
+                        ).classes("text-xs leading-relaxed text-slate-600")
                     for need in point.needs:
                         with ui.card().classes(
                             "w-full gap-2 rounded-xl border border-slate-200 p-3"
@@ -177,6 +193,18 @@ def render_manage_help_point(
                             ui.label(options[need.status]).classes(
                                 "text-sm text-slate-600"
                             )
+                            if need.commitments:
+                                with ui.column().classes("w-full gap-0.5"):
+                                    ui.label("Confirmaron ayuda:").classes(
+                                        "text-xs font-semibold text-slate-700"
+                                    )
+                                    for commitment in need.commitments:
+                                        text = f"• {commitment.name}"
+                                        if commitment.note:
+                                            text += f" — {commitment.note}"
+                                        ui.label(text).classes(
+                                            "text-xs text-slate-500"
+                                        )
                             selected_status = ui.select(
                                 options=options,
                                 label="Estado",
@@ -200,7 +228,7 @@ def render_manage_help_point(
                                     ),
                                 ).classes(
                                     "w-full sm:flex-1 min-h-[44px]"
-                                ).props("unelevated color=green-9")
+                                ).props("unelevated color=primary")
 
                                 with ui.dialog() as remove_dialog, ui.card().classes(
                                     "w-full max-w-sm gap-3 p-4"
@@ -240,7 +268,7 @@ def render_manage_help_point(
                                     "Quitar", on_click=remove_dialog.open
                                 ).classes(
                                     "w-full sm:flex-1 min-h-[44px]"
-                                ).props("outline color=red-9")
+                                ).props("unelevated color=red-9")
 
                 with ui.card().classes(
                     "w-full gap-3 rounded-2xl border border-slate-200 bg-white p-4"
@@ -266,9 +294,9 @@ def render_manage_help_point(
                                 add_need,
                             )
                         ),
-                    ).classes("w-full min-h-[44px]").props(
-                        "outline color=green-9"
-                    )
+                    ).classes(
+                        "w-full min-h-[44px]"
+                    ).props("unelevated color=primary")
 
                 with ui.card().classes(
                     "w-full gap-3 rounded-2xl border border-red-200 bg-white p-4"

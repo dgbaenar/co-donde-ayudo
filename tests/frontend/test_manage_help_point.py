@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import unittest
+from datetime import UTC, datetime
 from uuid import uuid4
 
-from backend.domain.models import HelpPoint, Need, NeedStatus
+from backend.domain.models import Commitment, HelpPoint, Need, NeedStatus
 from frontend.pages import manage_help_point
 from frontend.pages.manage_help_point import (
     add_need_to_point,
@@ -425,6 +426,12 @@ class ManageHelpPointResponsivePresentationTests(unittest.TestCase):
             self.assertIn(section, labels)
         self.assertIn("Agua", labels)
         self.assertIn("Se necesita", labels)
+        self.assertIn(
+            "Quien confirma ayuda solo activa el estado amarillo. "
+            "Solo quien tenga este enlace de administración puede "
+            "marcar una necesidad como cubierto.",
+            labels,
+        )
         buttons = {
             element.args[0]: element
             for element in fake_ui.elements
@@ -440,10 +447,12 @@ class ManageHelpPointResponsivePresentationTests(unittest.TestCase):
             self.assertIn("min-h-[44px]", buttons[text].classes_value)
         for text in ("Guardar información", "Guardar estado"):
             self.assertIn("unelevated", buttons[text].props_value)
-            self.assertIn("color=green-9", buttons[text].props_value)
-        self.assertIn("outline", buttons["Agregar necesidad"].props_value)
-        self.assertIn("color=green-9", buttons["Agregar necesidad"].props_value)
-        self.assertIn("outline", buttons["Quitar"].props_value)
+            self.assertIn("color=primary", buttons[text].props_value)
+            self.assertNotIn("color=green-9", buttons[text].props_value)
+        self.assertIn("unelevated", buttons["Agregar necesidad"].props_value)
+        self.assertIn("color=primary", buttons["Agregar necesidad"].props_value)
+        self.assertNotIn("color=green-9", buttons["Agregar necesidad"].props_value)
+        self.assertIn("unelevated", buttons["Quitar"].props_value)
         self.assertIn("color=red-9", buttons["Quitar"].props_value)
 
         category_selector = next(
@@ -663,6 +672,112 @@ class ManageHelpPointResponsivePresentationTests(unittest.TestCase):
         )
         self.assertNotIn(token, repr(notifications))
         self.assertNotIn("database unavailable", repr(notifications))
+
+
+class ManageHelpPointCommitmentsTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.fake_ui = RecordingUi()
+        self.original_ui = manage_help_point.ui
+        manage_help_point.ui = self.fake_ui
+        self.addCleanup(setattr, manage_help_point, "ui", self.original_ui)
+
+    def _render(self, point: HelpPoint) -> None:
+        manage_help_point.render_manage_help_point(
+            point,
+            "private-token",
+            {},
+            lambda *_args: point,
+            lambda *_args: point,
+            lambda *_args: point,
+            lambda *_args: point,
+            lambda *_args: point,
+        )
+
+    def test_commitments_are_listed_with_name_and_note_when_present(self) -> None:
+        need_id = uuid4()
+        commitments = (
+            Commitment(
+                id=uuid4(),
+                need_id=need_id,
+                name="Ana",
+                note="Voy para allá.",
+                active=True,
+                created_at=datetime(2026, 8, 11, tzinfo=UTC),
+            ),
+            Commitment(
+                id=uuid4(),
+                need_id=need_id,
+                name="Luis",
+                note=None,
+                active=True,
+                created_at=datetime(2026, 8, 11, tzinfo=UTC),
+            ),
+        )
+        need = Need(
+            id=need_id,
+            category_id=uuid4(),
+            status=NeedStatus.NEEDS_HELP,
+            commitments=commitments,
+        )
+        point = HelpPoint(
+            id=uuid4(),
+            name="Parque",
+            description="Apoyo",
+            city="Cali",
+            department="Valle",
+            address="Calle 5",
+            affected_city="Roldanillo",
+            affected_department="Valle del Cauca",
+            latitude=3.0,
+            longitude=-76.0,
+            coordinator_name="Ana",
+            coordinator_contact="Contacto",
+            admin_token="private-token",
+            active=True,
+            needs=(need,),
+        )
+
+        self._render(point)
+
+        labels = [
+            element.args[0]
+            for element in self.fake_ui.elements
+            if element.kind == "label"
+        ]
+        self.assertIn("Confirmaron ayuda:", labels)
+        self.assertIn("• Ana — Voy para allá.", labels)
+        self.assertIn("• Luis", labels)
+
+    def test_no_commitment_list_rendered_when_need_has_no_commitments(self) -> None:
+        need = Need(
+            id=uuid4(), category_id=uuid4(), status=NeedStatus.NEEDS_HELP
+        )
+        point = HelpPoint(
+            id=uuid4(),
+            name="Parque",
+            description="Apoyo",
+            city="Cali",
+            department="Valle",
+            address="Calle 5",
+            affected_city="Roldanillo",
+            affected_department="Valle del Cauca",
+            latitude=3.0,
+            longitude=-76.0,
+            coordinator_name="Ana",
+            coordinator_contact="Contacto",
+            admin_token="private-token",
+            active=True,
+            needs=(need,),
+        )
+
+        self._render(point)
+
+        labels = [
+            element.args[0]
+            for element in self.fake_ui.elements
+            if element.kind == "label"
+        ]
+        self.assertFalse(any(label.startswith("•") for label in labels))
 
 
 if __name__ == "__main__":

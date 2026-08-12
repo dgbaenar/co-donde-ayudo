@@ -74,21 +74,26 @@ def build_command(
     except KeyError as error:
         raise ValueError(f"unknown category: {error.args[0]}") from error
 
-    return CreateHelpPoint(
-        name=values.name.strip(),
-        description=values.description.strip(),
-        affected_city=values.affected_city.strip() or None,
-        affected_department=values.affected_department.strip(),
-        city=values.city.strip(),
-        department=values.department.strip(),
-        address=values.address.strip(),
-        latitude=values.latitude,
-        longitude=values.longitude,
-        coordinator_name=values.coordinator_name.strip(),
-        coordinator_contact=values.coordinator_contact.strip(),
-        category_ids=category_ids,
-        additional_affected_areas=(values.additional_affected_areas or "").strip() or None,
-    )
+    try:
+        return CreateHelpPoint(
+            name=values.name.strip(),
+            description=values.description.strip(),
+            affected_city=values.affected_city.strip() or None,
+            affected_department=values.affected_department.strip(),
+            city=values.city.strip(),
+            department=values.department.strip(),
+            address=values.address.strip(),
+            latitude=values.latitude,
+            longitude=values.longitude,
+            coordinator_name=values.coordinator_name.strip(),
+            coordinator_contact=values.coordinator_contact.strip(),
+            category_ids=category_ids,
+            additional_affected_areas=(values.additional_affected_areas or "").strip() or None,
+        )
+    except ValueError as error:
+        raise ValueError(
+            "Completa todos los campos obligatorios antes de publicar."
+        ) from error
 
 
 def publish_help_point(
@@ -182,7 +187,13 @@ def render_create_help_point(
         with form_container:
             ui.label("Crear punto de ayuda").classes("text-h5")
             name = ui.input("Nombre del lugar").classes("w-full")
-            description = ui.textarea("¿Qué está pasando?").classes("w-full")
+            description = ui.textarea(
+                "¿Qué está pasando en este punto?",
+                placeholder=(
+                    "Ej: Varias familias fueron evacuadas y estamos "
+                    "organizando ayuda desde este parque."
+                ),
+            ).classes("w-full")
             ui.label("Zona que recibirá la ayuda").classes("text-h6")
             affected_department = ui.select(
                 options={
@@ -342,6 +353,10 @@ def render_create_help_point(
                         ui.label(
                             "Este enlace es privado. Cópialo y guárdalo: lo necesitarás "
                             "para administrar el punto."
+                        )
+                        ui.label(
+                            "Puedes compartirlo con otras personas de confianza para "
+                            "que sigan coordinando cuando tú no puedas."
                         )
                         ui.input(
                             "Enlace privado de administración", value=admin_url

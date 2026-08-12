@@ -57,6 +57,7 @@ class RecordingUi:
         self.css_calls.append((rule, kwargs))
 
     def column(self, *args, **kwargs): return self._record("column", *args, **kwargs)
+    def row(self, *args, **kwargs): return self._record("row", *args, **kwargs)
     def card(self, *args, **kwargs): return self._record("card", *args, **kwargs)
     def label(self, *args, **kwargs): return self._record("label", *args, **kwargs)
     def link(self, *args, **kwargs): return self._record("link", *args, **kwargs)
@@ -71,6 +72,7 @@ class RecordingApp:
     def __init__(self, user_storage) -> None:
         self.storage = SimpleNamespace(user=user_storage)
         self.routes = {}
+        self.color_calls = []
 
     def get(self, path):
         def register(handler):
@@ -78,6 +80,9 @@ class RecordingApp:
             return handler
 
         return register
+
+    def colors(self, **kwargs):
+        self.color_calls.append(kwargs)
 
 
 class RecordingAuthorizer:
@@ -143,13 +148,23 @@ class CoordinatorAccessPageTests(unittest.TestCase):
             "compartida para crear y publicar el punto.",
             labels,
         )
-        contact = (
-            "¿No tienes una clave o necesitas ayuda? "
-            "Contacto por WhatsApp: dan.barod. "
-            "También puedes preguntarles la contraseña a los influenciadores "
-            "que publicaron esta página."
+        self.assertIn(
+            "Compártela solo con otras personas coordinadoras: la clave no "
+            "debe circular libremente, para que los puntos sigan gestionados "
+            "por quienes coordinan.",
+            labels,
         )
-        self.assertIn(contact, labels)
+        note = (
+            "¿No tienes clave? Pídesela a los influenciadores que "
+            "promueven esta página, o escríbenos:"
+        )
+        self.assertIn(note, labels)
+        whatsapp_label = next(
+            element
+            for element in self.fake_ui.elements
+            if element.kind == "label" and element.args[0] == "WhatsApp: dan.barod"
+        )
+        self.assertIn("bg-emerald-700", whatsapp_label.classes_value)
         self.assertFalse(
             any(
                 element.kind == "link" and "dan.barod" in repr(element.args)
@@ -158,6 +173,13 @@ class CoordinatorAccessPageTests(unittest.TestCase):
         )
         self.assertFalse(
             any("wa.me" in repr(element.args) for element in self.fake_ui.elements)
+        )
+        self.assertTrue(
+            any(
+                element.kind == "link"
+                and element.args == ("Volver al mapa", "/")
+                for element in self.fake_ui.elements
+            )
         )
         card = next(
             element for element in self.fake_ui.elements if element.kind == "card"
@@ -172,7 +194,8 @@ class CoordinatorAccessPageTests(unittest.TestCase):
         self.assertIn("w-full", button.classes_value)
         self.assertIn("min-h-[48px]", button.classes_value)
         self.assertIn("unelevated", button.props_value)
-        self.assertIn("color=green-9", button.props_value)
+        self.assertIn("color=primary", button.props_value)
+        self.assertNotIn("color=green-9", button.props_value)
 
     def test_correct_key_sets_boolean_session_authorization_and_navigates_to_create(self) -> None:
         authorizer = RecordingAuthorizer("synthetic-correct-key")
@@ -224,6 +247,7 @@ class CoordinatorAccessRouteTests(unittest.TestCase):
             "authorize_coordinator_access": lambda _key: False,
             "get_public_help_point": lambda _point_id: None,
             "is_database_ready": lambda: True,
+            "create_commitment": lambda *_args: object(),
         }
 
     def register_routes(self) -> None:
@@ -257,6 +281,11 @@ class CoordinatorAccessRouteTests(unittest.TestCase):
                 )
             ],
         )
+
+    def test_create_app_sets_global_primary_color_to_brand_green(self) -> None:
+        self.register_routes()
+
+        self.assertEqual(self.fake_app.color_calls, [{"primary": "#047857"}])
 
     def test_access_route_renders_with_injected_authorizer(self) -> None:
         self.register_routes()

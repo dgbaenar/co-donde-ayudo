@@ -22,6 +22,7 @@ from frontend.pages.coordinator_access import (
 )
 from frontend.pages.home import ListDepartments, ListLocalities, render_home
 from frontend.pages.help_point_detail import (
+    CreateCommitmentHandler,
     GetPublicHelpPoint,
     render_help_point_detail_for_path,
 )
@@ -54,6 +55,7 @@ def create_app(
     authorize_coordinator_access: AuthorizeCoordinatorAccess,
     get_public_help_point: GetPublicHelpPoint,
     is_database_ready: Callable[[], bool],
+    create_commitment: CreateCommitmentHandler,
 ) -> None:
     """Register routes without creating external clients or starting a server."""
     @app.get("/healthz")
@@ -71,6 +73,7 @@ def create_app(
         "overflow-y: auto !important; }",
         shared=True,
     )
+    app.colors(primary="#047857")
 
     @ui.page("/", title="¿Dónde ayudo?")
     def home_page() -> None:
@@ -91,6 +94,7 @@ def create_app(
             point_id,
             get_public_help_point,
             list_active_categories(),
+            create_commitment,
         )
 
     @ui.page("/crear")

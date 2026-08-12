@@ -208,7 +208,7 @@ no vacía de máximo 240 caracteres; los dos campos afectados son obligatorios.
 
 `descripcion` responde solamente:
 
-## ¿Qué está pasando?
+## ¿Qué está pasando en este punto?
 
 Ejemplo:
 
@@ -717,7 +717,7 @@ Campos:
 
 ## Nombre del punto
 
-## ¿Qué está pasando?
+## ¿Qué está pasando en este punto?
 
 ## Zona que recibirá la ayuda
 

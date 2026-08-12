@@ -11,7 +11,7 @@ from frontend.pages.home import (
     affected_area_text,
     filter_public_help_points,
     location_filter_options,
-    status_text,
+    status_line,
 )
 
 
@@ -255,12 +255,13 @@ class AffectedAreaTextTests(unittest.TestCase):
 
 class NeedStatusTextTests(unittest.TestCase):
     def test_uses_the_exact_public_text_for_each_need_status(self) -> None:
-        self.assertEqual(status_text(NeedStatus.NEEDS_HELP), "🔴 Se necesita")
+        self.assertEqual(status_line(NeedStatus.NEEDS_HELP, "Agua"), "🔴 Agua")
         self.assertEqual(
-            status_text(NeedStatus.HELP_ON_THE_WAY),
-            "🟡 Hay ayuda en camino — todavía se necesita",
+            status_line(NeedStatus.HELP_ON_THE_WAY, "Agua"), "🟡 Agua"
         )
-        self.assertEqual(status_text(NeedStatus.COVERED), "🟢 Cubierto — no enviar más")
+        self.assertEqual(
+            status_line(NeedStatus.COVERED, "Agua"), "🟢 Agua — no enviar más"
+        )
 
 
 class HomeBrandingTests(unittest.TestCase):
@@ -640,9 +641,9 @@ class HomeResponsivePresentationTests(unittest.TestCase):
         self.assertEqual(
             need_labels,
             [
-                "🔴 Se necesita Urgente A",
-                "🔴 Se necesita Urgente Z",
-                "🟡 Hay ayuda en camino — todavía se necesita En camino C",
+                "🔴 Urgente A",
+                "🔴 Urgente Z",
+                "🟡 En camino C",
             ],
         )
         self.assertIn("+1 necesidades", labels)

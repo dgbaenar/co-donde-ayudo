@@ -109,8 +109,7 @@ class HelpPointMapTests(unittest.TestCase):
         self.assertIn("Recibe ayuda en:", popup)
         self.assertNotIn("Ayuda para:", popup)
         self.assertNotIn("Punto de recepción:", popup)
-        self.assertIn("&lt;b&gt;Agua&lt;/b&gt;", popup)
-        self.assertIn("🔴 Se necesita", popup)
+        self.assertIn("🔴 &lt;b&gt;Agua&lt;/b&gt;", popup)
         self.assertIn(f'href="/puntos/{point.id}"', popup)
 
     def test_renders_colombia_map_with_one_popup_marker_per_active_point(self) -> None:

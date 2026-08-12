@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 from enum import Enum
 from uuid import UUID
 
@@ -68,10 +69,22 @@ class CreateHelpPoint:
 
 
 @dataclass(frozen=True, slots=True)
+class Commitment:
+    id: UUID
+    need_id: UUID
+    name: str
+    note: str | None
+    active: bool
+    created_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
 class Need:
     id: UUID
     category_id: UUID
     status: NeedStatus
+    commitments: tuple[Commitment, ...] = ()
+    active_commitment_count: int = 0
 
 
 @dataclass(frozen=True, slots=True)
