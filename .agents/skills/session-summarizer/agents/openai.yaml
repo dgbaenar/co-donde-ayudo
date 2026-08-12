@@ -1,0 +1,4 @@
+interface:
+  display_name: "Session Summarizer"
+  short_description: "Create evidence-backed continuation handoffs"
+  default_prompt: "Use $session-summarizer to create a compact handoff from verified repository and session state."

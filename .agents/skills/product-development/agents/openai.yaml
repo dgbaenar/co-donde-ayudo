@@ -1,0 +1,4 @@
+interface:
+  display_name: "Product Development"
+  short_description: "Review supplied specifications and backlogs"
+  default_prompt: "Use $product-development to review the supplied specification and backlog paths against the current repository."

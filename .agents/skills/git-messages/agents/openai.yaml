@@ -1,0 +1,4 @@
+interface:
+  display_name: "Git Messages"
+  short_description: "Draft messages from actual repository state"
+  default_prompt: "Use $git-messages to draft Git text from the actual repository status and diff."

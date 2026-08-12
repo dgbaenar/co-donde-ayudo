@@ -1,0 +1,4 @@
+interface:
+  display_name: "Backlog Execution"
+  short_description: "Execute one ready backlog task safely"
+  default_prompt: "Use $backlog-execution to select and execute one dependency-ready task from the supplied backlog."
