@@ -35,7 +35,7 @@ class HelpPointRepository(Protocol):
 
     def create_custom_category(self, name: str) -> UUID: ...
 
-    def create_commitment(self, need_id: UUID, name: str, note: str | None) -> Commitment: ...
+    def create_commitment(self, need_id: UUID, name: str, note: str | None) -> Need: ...
 
 
 class LocationCatalog(Protocol):
@@ -157,7 +157,7 @@ class HelpPointService:
         validate_required(normalized_name, "name", 120)
         return self._repository.create_custom_category(normalized_name)
 
-    def create_commitment(self, need_id: UUID, name: str, note: str | None) -> Commitment:
+    def create_commitment(self, need_id: UUID, name: str, note: str | None) -> Need:
         point = self._repository.get_help_point_by_need_id(need_id)
         if point is None or not point.active:
             raise ValueError("need not found")
@@ -171,7 +171,23 @@ class HelpPointService:
         normalized_note = (note or "").strip() or None
         if normalized_note is not None:
             validate_optional(normalized_note, "note", 500)
-        return self._repository.create_commitment(need_id, normalized_name, normalized_note)
+        commitment = self._repository.create_commitment(need_id, normalized_name, normalized_note)
+        commitments = (*need.commitments, commitment)
+        updated_need = replace(
+            need,
+            commitments=commitments,
+            active_commitment_count=sum(1 for c in commitments if c.active),
+        )
+        if need.status is NeedStatus.NEEDS_HELP:
+            # A commitment on a NEEDS_HELP need is a fact, not a judgment call: reporting that
+            # someone committed to help automatically moves the need to HELP_ON_THE_WAY.
+            # HELP_ON_THE_WAY -> COVERED remains coordinator-exclusive via change_need_status.
+            updated_need = replace(updated_need, status=NeedStatus.HELP_ON_THE_WAY)
+            needs = tuple(
+                updated_need if n.id == need_id else n for n in point.needs
+            )
+            self._repository.update_help_point(replace(point, needs=needs))
+        return updated_need
 
     def update_help_point_info(
         self,

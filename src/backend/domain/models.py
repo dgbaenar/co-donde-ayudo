@@ -84,6 +84,7 @@ class Need:
     category_id: UUID
     status: NeedStatus
     commitments: tuple[Commitment, ...] = ()
+    active_commitment_count: int = 0
 
 
 @dataclass(frozen=True, slots=True)

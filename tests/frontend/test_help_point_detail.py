@@ -229,12 +229,9 @@ class HelpPointDetailTests(unittest.TestCase):
         self.assertIn("Roldanillo, Valle del Cauca", labels)
         self.assertIn("Calle 5 # 10-20, Cali, Valle del Cauca", labels)
         self.assertFalse(any(label.startswith("También:") for label in labels))
-        self.assertIn("🔴 Se necesita Agua", labels)
-        self.assertIn(
-            "🟡 Hay ayuda en camino — todavía se necesita Alimentos",
-            labels,
-        )
-        self.assertIn("🟢 Cubierto — no enviar más Refugio", labels)
+        self.assertIn("🔴 Agua", labels)
+        self.assertIn("🟡 Alimentos", labels)
+        self.assertIn("🟢 Refugio — no enviar más", labels)
         self.assertFalse(
             any(element.kind == "html" for element in self.fake_ui.elements)
         )
@@ -248,7 +245,8 @@ class HelpPointDetailTests(unittest.TestCase):
         status_rows = [
             element
             for element in self.fake_ui.elements
-            if element.kind == "row" and "border" in element.classes_value
+            if element.kind in ("row", "column")
+            and "border-l-4" in element.classes_value
         ]
         self.assertEqual(len(status_rows), 3)
         self.assertTrue(
@@ -467,7 +465,9 @@ class VoyAAyudarDialogTests(unittest.TestCase):
 
         def create_commitment(need_id, name, note):
             calls.append((need_id, name, note))
-            return object()
+            return Need(
+                id=need_id, category_id=self.category_id, status=NeedStatus.HELP_ON_THE_WAY
+            )
 
         self._render(create_commitment)
 
@@ -493,7 +493,9 @@ class VoyAAyudarDialogTests(unittest.TestCase):
 
         def create_commitment(need_id, name, note):
             calls.append((need_id, name, note))
-            return object()
+            return Need(
+                id=need_id, category_id=self.category_id, status=NeedStatus.HELP_ON_THE_WAY
+            )
 
         self._render(create_commitment)
 
@@ -546,7 +548,11 @@ class VoyAAyudarDialogTests(unittest.TestCase):
         self.assertEqual(notifications[0].kwargs.get("type"), "negative")
 
     def test_confirm_success_shows_exact_thanks_message(self) -> None:
-        self._render(lambda *_args: object())
+        self._render(
+            lambda need_id, *_args: Need(
+                id=need_id, category_id=self.category_id, status=NeedStatus.HELP_ON_THE_WAY
+            )
+        )
 
         name_input = next(
             element
@@ -607,6 +613,172 @@ class VoyAAyudarDialogTests(unittest.TestCase):
             if element.kind == "label"
         ]
         self.assertFalse(any(label.startswith("Gracias.") for label in labels))
+
+    def test_dialog_and_thanks_message_survive_the_status_row_refresh(self) -> None:
+        """Regression: confirming must not erase the dialog it lives in."""
+        self._render(
+            lambda need_id, *_args: Need(
+                id=need_id,
+                category_id=self.category_id,
+                status=NeedStatus.HELP_ON_THE_WAY,
+            )
+        )
+
+        dialog = next(
+            element for element in self.fake_ui.elements if element.kind == "dialog"
+        )
+        name_input = next(
+            element
+            for element in self.fake_ui.elements
+            if element.kind == "input" and element.args == ("Nombre",)
+        )
+        name_input.value = "Ana"
+        confirm_button = next(
+            element
+            for element in self.fake_ui.elements
+            if element.kind == "button" and element.args == ("Confirmar",)
+        )
+        confirm_button.kwargs["on_click"]()
+
+        self.assertIn(dialog, self.fake_ui.elements)
+        dialog_descendants = list(_descendants(dialog))
+        thanks_labels = [
+            element
+            for element in dialog_descendants
+            if element.kind == "label"
+            and element.args
+            and element.args[0].startswith("Gracias.")
+        ]
+        self.assertEqual(len(thanks_labels), 1)
+        close_buttons = [
+            element
+            for element in dialog_descendants
+            if element.kind == "button" and element.args == ("Cerrar",)
+        ]
+        self.assertEqual(len(close_buttons), 1)
+
+    def test_status_row_updates_color_and_text_after_confirming_without_reload(
+        self,
+    ) -> None:
+        def status_boxes():
+            return [
+                element
+                for element in self.fake_ui.elements
+                if element.kind in ("row", "column")
+                and "border-l-4" in element.classes_value
+            ]
+
+        self._render(
+            lambda need_id, *_args: Need(
+                id=need_id,
+                category_id=self.category_id,
+                status=NeedStatus.HELP_ON_THE_WAY,
+            )
+        )
+
+        labels_before = [
+            element.args[0]
+            for element in self.fake_ui.elements
+            if element.kind == "label"
+        ]
+        self.assertEqual(labels_before.count("🔴 Agua"), 1)
+        self.assertEqual(labels_before.count("🟡 Agua"), 1)
+        self.assertEqual(sum("red" in box.classes_value for box in status_boxes()), 1)
+
+        name_input = next(
+            element
+            for element in self.fake_ui.elements
+            if element.kind == "input" and element.args == ("Nombre",)
+        )
+        name_input.value = "Ana"
+        confirm_button = next(
+            element
+            for element in self.fake_ui.elements
+            if element.kind == "button" and element.args == ("Confirmar",)
+        )
+        confirm_button.kwargs["on_click"]()
+
+        labels_after = [
+            element.args[0]
+            for element in self.fake_ui.elements
+            if element.kind == "label"
+        ]
+        self.assertEqual(labels_after.count("🔴 Agua"), 0)
+        self.assertEqual(labels_after.count("🟡 Agua"), 2)
+        self.assertEqual(sum("red" in box.classes_value for box in status_boxes()), 0)
+        self.assertEqual(
+            sum("amber" in box.classes_value for box in status_boxes()), 2
+        )
+
+    def test_zero_active_commitment_count_shows_no_counter_label(self) -> None:
+        self._render(lambda *_args: object())
+
+        labels = [
+            element.args[0]
+            for element in self.fake_ui.elements
+            if element.kind == "label"
+        ]
+        self.assertFalse(any("persona" in label for label in labels))
+
+    def test_singular_commitment_count_label(self) -> None:
+        self._render(
+            lambda need_id, *_args: Need(
+                id=need_id,
+                category_id=self.category_id,
+                status=NeedStatus.HELP_ON_THE_WAY,
+                active_commitment_count=1,
+            )
+        )
+
+        name_input = next(
+            element
+            for element in self.fake_ui.elements
+            if element.kind == "input" and element.args == ("Nombre",)
+        )
+        name_input.value = "Ana"
+        confirm_button = next(
+            element
+            for element in self.fake_ui.elements
+            if element.kind == "button" and element.args == ("Confirmar",)
+        )
+        confirm_button.kwargs["on_click"]()
+
+        labels = [
+            element.args[0]
+            for element in self.fake_ui.elements
+            if element.kind == "label"
+        ]
+        self.assertIn("1 persona dijo que va", labels)
+
+    def test_plural_commitment_count_label(self) -> None:
+        self._render(
+            lambda need_id, *_args: Need(
+                id=need_id,
+                category_id=self.category_id,
+                status=NeedStatus.HELP_ON_THE_WAY,
+                active_commitment_count=3,
+            )
+        )
+
+        name_input = next(
+            element
+            for element in self.fake_ui.elements
+            if element.kind == "input" and element.args == ("Nombre",)
+        )
+        name_input.value = "Ana"
+        confirm_button = next(
+            element
+            for element in self.fake_ui.elements
+            if element.kind == "button" and element.args == ("Confirmar",)
+        )
+        confirm_button.kwargs["on_click"]()
+
+        labels = [
+            element.args[0]
+            for element in self.fake_ui.elements
+            if element.kind == "label"
+        ]
+        self.assertIn("3 personas dijeron que van", labels)
 
 
 if __name__ == "__main__":

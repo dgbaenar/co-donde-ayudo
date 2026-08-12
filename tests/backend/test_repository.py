@@ -159,6 +159,29 @@ class RepositoryTests(unittest.TestCase):
         restored = PostgresHelpPointRepository._point_from_row(row)
 
         self.assertEqual(restored.needs[0].commitments, ())
+        self.assertEqual(restored.needs[0].active_commitment_count, 0)
+
+    def test_point_from_row_counts_only_active_commitments(self) -> None:
+        original = point()
+        row = PostgresHelpPointRepository._row_from_point(original)
+        active_one = CommitmentRow(
+            id=uuid4(), need_id=row.needs[0].id, nombre="Ana", nota=None,
+            activo=True, created_at=datetime(2026, 8, 11, tzinfo=UTC),
+        )
+        active_two = CommitmentRow(
+            id=uuid4(), need_id=row.needs[0].id, nombre="Luis", nota=None,
+            activo=True, created_at=datetime(2026, 8, 11, tzinfo=UTC),
+        )
+        inactive = CommitmentRow(
+            id=uuid4(), need_id=row.needs[0].id, nombre="Carlos", nota=None,
+            activo=False, created_at=datetime(2026, 8, 11, tzinfo=UTC),
+        )
+        row.needs[0].commitments = [active_one, active_two, inactive]
+
+        restored = PostgresHelpPointRepository._point_from_row(row)
+
+        self.assertEqual(len(restored.needs[0].commitments), 3)
+        self.assertEqual(restored.needs[0].active_commitment_count, 2)
 
     def test_get_help_point_by_need_id_returns_full_point_when_need_exists(self) -> None:
         original = point()

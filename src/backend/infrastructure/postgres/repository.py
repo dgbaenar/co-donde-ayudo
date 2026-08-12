@@ -150,6 +150,9 @@ class PostgresHelpPointRepository:
                         )
                         for commitment in need.commitments
                     ),
+                    active_commitment_count=sum(
+                        1 for commitment in need.commitments if commitment.activo
+                    ),
                 )
                 for need in row.needs
             ),

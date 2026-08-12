@@ -8,7 +8,7 @@ from uuid import UUID
 from nicegui import ui
 
 from backend.domain.models import PublicHelpPoint
-from frontend.components.help_point_map import render_help_point_map, status_text
+from frontend.components.help_point_map import render_help_point_map, status_line
 
 
 ListDepartments = Callable[[], Sequence[str]]
@@ -147,7 +147,7 @@ def render_home(
                                         need.category_id, "Necesidad"
                                     )
                                     ui.label(
-                                        f"{status_text(need.status)} {category_name}"
+                                        status_line(need.status, category_name)
                                     ).classes("text-xs")
                                 remaining_needs = len(ordered_needs) - 3
                                 if remaining_needs > 0:
