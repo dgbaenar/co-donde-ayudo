@@ -296,7 +296,7 @@ class HomeResponsivePresentationTests(unittest.TestCase):
         finally:
             home.ui = original_ui
 
-        self.assertTrue(any(element.kind == "link" and element.args == ("Coordinar un punto", "/acceso") for element in fake_ui.elements))
+        self.assertTrue(any(element.kind == "link" and element.args == ("Crear nuevo punto de ayuda o recolección", "/crear") for element in fake_ui.elements))
         self.assertTrue(any(element.kind == "label" and element.args == ("Todavía no hay puntos de ayuda activos.",) for element in fake_ui.elements))
         self.assertTrue(any(element.kind == "label" and element.args == ("Filtrar por zona afectada",) for element in fake_ui.elements))
         visible_labels = [
@@ -388,7 +388,7 @@ class HomeResponsivePresentationTests(unittest.TestCase):
         self.assertFalse(any("bg-emerald-50" in element.classes_value for element in fake_ui.elements))
         self.assertTrue(all("color=blue-grey-9" in element.props_value for element in selects))
         self.assertTrue(any(element.kind == "icon" and element.args == ("location_on",) for element in fake_ui.elements))
-        cta = next(element for element in fake_ui.elements if element.kind == "link" and element.args == ("Coordinar un punto", "/acceso"))
+        cta = next(element for element in fake_ui.elements if element.kind == "link" and element.args == ("Crear nuevo punto de ayuda o recolección", "/crear"))
         self.assertIn("bg-emerald-700", cta.classes_value)
         title = next(
             element

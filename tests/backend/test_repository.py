@@ -9,6 +9,8 @@ from backend.domain.models import Commitment, HelpPoint, Need, NeedStatus
 from backend.infrastructure.postgres.orm_models import CommitmentRow, HelpPointRow, NeedRow
 from backend.infrastructure.postgres.repository import PostgresHelpPointRepository
 
+FIXED_UPDATED_AT = datetime(2026, 8, 12, tzinfo=UTC)
+
 
 class Session:
     def __init__(self) -> None:
@@ -34,7 +36,12 @@ class Session:
         self.deleted.append(row)
 
     def flush(self) -> None:
-        return None
+        for row in self.added:
+            if isinstance(row, HelpPointRow):
+                row.updated_at = FIXED_UPDATED_AT
+        for row in self.rows.values():
+            if isinstance(row, HelpPointRow):
+                row.updated_at = FIXED_UPDATED_AT
 
     def get(self, model, key, with_for_update=False):
         if model is NeedRow:
@@ -54,6 +61,7 @@ class Factory:
 def point(
     additional_affected_areas: str | None = None,
     affected_city: str | None = "Roldanillo",
+    important_links: tuple[str, ...] = (),
 ) -> HelpPoint:
     return HelpPoint(
         id=UUID("00000000-0000-0000-0000-000000000001"), name="Parque", description="Ayuda",
@@ -62,7 +70,9 @@ def point(
         latitude=3.4, longitude=-76.5, coordinator_name="Ana",
         coordinator_contact="Contacto", admin_token="x" * 40, active=True,
         needs=(Need(UUID("00000000-0000-0000-0000-000000000010"), UUID("00000000-0000-0000-0000-000000000100"), NeedStatus.NEEDS_HELP),),
+        updated_at=FIXED_UPDATED_AT,
         additional_affected_areas=additional_affected_areas,
+        important_links=important_links,
     )
 
 
@@ -101,6 +111,32 @@ class RepositoryTests(unittest.TestCase):
         self.assertIsNone(row.zonas_adicionales)
         restored = PostgresHelpPointRepository._point_from_row(row)
         self.assertIsNone(restored.additional_affected_areas)
+
+    def test_create_round_trips_important_links_when_present(self) -> None:
+        session = Session()
+        source = point(important_links=("https://example.com/ayuda", "http://otro.example.co"))
+        PostgresHelpPointRepository(Factory(session)).create_help_point(source)
+
+        row = session.added[0]
+        self.assertEqual(
+            row.enlaces_importantes,
+            ["https://example.com/ayuda", "http://otro.example.co"],
+        )
+        restored = PostgresHelpPointRepository._point_from_row(row)
+        self.assertEqual(
+            restored.important_links,
+            ("https://example.com/ayuda", "http://otro.example.co"),
+        )
+
+    def test_create_round_trips_important_links_when_empty(self) -> None:
+        session = Session()
+        source = point(important_links=())
+        PostgresHelpPointRepository(Factory(session)).create_help_point(source)
+
+        row = session.added[0]
+        self.assertEqual(row.enlaces_importantes, [])
+        restored = PostgresHelpPointRepository._point_from_row(row)
+        self.assertEqual(restored.important_links, ())
 
     def test_create_round_trips_affected_city_when_none(self) -> None:
         session = Session()
@@ -188,6 +224,7 @@ class RepositoryTests(unittest.TestCase):
     def test_get_help_point_by_need_id_returns_full_point_when_need_exists(self) -> None:
         original = point()
         row = PostgresHelpPointRepository._row_from_point(original)
+        row.updated_at = FIXED_UPDATED_AT
         session = Session()
         session.need_rows[row.needs[0].id] = row.needs[0]
         row.needs[0].help_point = row
@@ -285,6 +322,22 @@ class RepositoryTests(unittest.TestCase):
 
         self.assertEqual(need_row.estado, "HELP_ON_THE_WAY")
         self.assertTrue(session.locked_for_update[need_id])
+
+    def test_update_help_point_returns_fresh_updated_at(self) -> None:
+        original = point()
+        existing = PostgresHelpPointRepository._row_from_point(original)
+        old_time = datetime(2026, 1, 1, tzinfo=UTC)
+        existing.updated_at = old_time
+        session = Session()
+        session.rows[original.id] = existing
+        updated = replace(original, name="Nuevo nombre")
+
+        result = PostgresHelpPointRepository(Factory(session)).update_help_point(updated)
+
+        # flush() should update the row's timestamp, and the returned point
+        # must carry the new value, not the one the row had before the update.
+        self.assertNotEqual(result.updated_at, old_time)
+        self.assertEqual(result.updated_at, FIXED_UPDATED_AT)
 
     def test_create_commitment_on_help_on_the_way_row_keeps_status(self) -> None:
         session = Session()

@@ -140,6 +140,31 @@ class HelpPointServiceTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "additional_affected_areas"):
             self.command(additional_affected_areas="a" * 501)
 
+    def test_create_command_accepts_missing_or_valid_important_links(self) -> None:
+        without_links = self.command()
+        self.assertEqual(without_links.important_links, ())
+
+        with_links = self.command(
+            important_links=("https://example.com/ayuda", "http://otro.example.co")
+        )
+        self.assertEqual(
+            with_links.important_links,
+            ("https://example.com/ayuda", "http://otro.example.co"),
+        )
+
+    def test_create_command_rejects_important_link_with_disallowed_scheme(self) -> None:
+        with self.assertRaisesRegex(ValueError, "important_links"):
+            self.command(important_links=("javascript:alert(1)",))
+
+    def test_create_command_rejects_important_link_blank_after_strip(self) -> None:
+        with self.assertRaisesRegex(ValueError, "important_links"):
+            self.command(important_links=("   ",))
+
+    def test_create_command_rejects_important_link_over_500_characters(self) -> None:
+        overly_long = "https://example.com/" + ("a" * 490)
+        with self.assertRaisesRegex(ValueError, "important_links"):
+            self.command(important_links=(overly_long,))
+
     def test_create_command_rejects_empty_location_fields(self) -> None:
         for field in ("address", "affected_city", "affected_department"):
             with self.subTest(field=field):
@@ -204,6 +229,25 @@ class HelpPointServiceTests(unittest.TestCase):
         self.assertEqual(public.address, "Calle 5 # 10-20")
         self.assertEqual(public.affected_city, "Roldanillo")
         self.assertEqual(public.affected_department, "Valle del Cauca")
+
+    def test_create_propagates_important_links_to_persisted_point(self) -> None:
+        created = self.service.create_help_point(
+            self.command(important_links=("https://example.com/ayuda",))
+        ).point
+
+        self.assertEqual(created.important_links, ("https://example.com/ayuda",))
+        self.assertEqual(
+            self.repository.created.important_links, ("https://example.com/ayuda",)
+        )
+
+    def test_to_public_exposes_important_links(self) -> None:
+        point = self.service.create_help_point(
+            self.command(important_links=("https://example.com/ayuda",))
+        ).point
+
+        public = self.service.to_public(point)
+
+        self.assertEqual(public.important_links, ("https://example.com/ayuda",))
 
     def test_create_point_generates_token_and_multiple_needs(self) -> None:
         result = self.service.create_help_point(self.command())

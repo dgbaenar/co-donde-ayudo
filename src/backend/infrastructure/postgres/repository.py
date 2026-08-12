@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
@@ -21,8 +22,10 @@ class PostgresHelpPointRepository:
     def create_help_point(self, point: HelpPoint) -> HelpPoint:
         with self._session_factory() as session:
             with session.begin():
-                session.add(self._row_from_point(point))
-        return point
+                row = self._row_from_point(point)
+                session.add(row)
+                session.flush()
+                return replace(point, updated_at=row.updated_at)
 
     def update_help_point(self, point: HelpPoint) -> HelpPoint:
         with self._session_factory() as session:
@@ -41,7 +44,8 @@ class PostgresHelpPointRepository:
                 for category_id, need in desired.items():
                     if category_id not in existing:
                         row.needs.append(NeedRow(id=need.id, category_id=category_id, estado=need.status.value))
-        return point
+                session.flush()
+                return replace(point, updated_at=row.updated_at)
 
     def list_active_categories(self) -> dict[str, UUID]:
         with self._session_factory() as session:
@@ -120,6 +124,7 @@ class PostgresHelpPointRepository:
         row.ciudad_afectada = point.affected_city
         row.departamento_afectado = point.affected_department
         row.zonas_adicionales = point.additional_affected_areas
+        row.enlaces_importantes = list(point.important_links)
         row.latitude = point.latitude
         row.longitude = point.longitude
         row.nombre_coordinador = point.coordinator_name
@@ -139,12 +144,14 @@ class PostgresHelpPointRepository:
             affected_city=row.ciudad_afectada,
             affected_department=row.departamento_afectado,
             additional_affected_areas=row.zonas_adicionales,
+            important_links=tuple(row.enlaces_importantes),
             latitude=row.latitude,
             longitude=row.longitude,
             coordinator_name=row.nombre_coordinador,
             coordinator_contact=row.contacto_coordinador,
             admin_token=row.admin_token,
             active=row.activo,
+            updated_at=row.updated_at,
             needs=tuple(
                 Need(
                     id=need.id,

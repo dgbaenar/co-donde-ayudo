@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
+from datetime import UTC, datetime
 import logging
 from uuid import UUID
 
@@ -35,6 +36,30 @@ def commitment_count_text(count: int) -> str | None:
     if count == 1:
         return "1 persona confirmó ayuda"
     return f"{count} personas confirmaron ayuda"
+
+
+def _render_updated_at(updated_at: datetime) -> None:
+    """Show a relative or absolute last-updated timestamp."""
+    now = datetime.now(UTC)
+    delta = now - updated_at
+    if delta.total_seconds() < 60:
+        label = "Actualizado hace menos de un minuto"
+    elif delta.total_seconds() < 3600:
+        minutes = int(delta.total_seconds() // 60)
+        label = f"Actualizado hace {minutes} minuto{'s' if minutes != 1 else ''}"
+    elif delta.total_seconds() < 86400:
+        hours = int(delta.total_seconds() // 3600)
+        label = f"Actualizado hace {hours} hora{'s' if hours != 1 else ''}"
+    else:
+        months = [
+            "ene", "feb", "mar", "abr", "may", "jun",
+            "jul", "ago", "sep", "oct", "nov", "dic",
+        ]
+        label = (
+            f"Actualizado el {updated_at.day} "
+            f"{months[updated_at.month - 1]} {updated_at.year}"
+        )
+    ui.label(label).classes("text-xs text-slate-400 mt-1")
 
 
 def render_help_point_detail_for_path(
@@ -146,12 +171,16 @@ def render_help_point_detail(
                 ui.label(point.description).classes(
                     "text-base leading-relaxed text-slate-600"
                 )
-                ui.label(f"Coordina: {point.coordinator_name}").classes(
-                    "text-sm text-slate-600"
-                )
-                ui.label(f"Contacto: {point.coordinator_contact}").classes(
-                    "text-sm text-slate-600"
-                )
+                with ui.column().classes(
+                    "w-full gap-1 rounded-lg bg-slate-50 p-3 mt-1"
+                ):
+                    ui.label(f"Coordina: {point.coordinator_name}").classes(
+                        "text-base font-semibold text-slate-800"
+                    )
+                    ui.label(f"Contacto: {point.coordinator_contact}").classes(
+                        "text-base text-slate-700"
+                    )
+                _render_updated_at(point.updated_at)
 
             with ui.grid().classes("w-full grid-cols-1 md:grid-cols-2 gap-3"):
                 with ui.column().classes(
@@ -252,6 +281,18 @@ def render_help_point_detail(
                             render_commitment_control(
                                 need, create_commitment, on_committed=render_status
                             )
+
+            if point.important_links:
+                with ui.column().classes(
+                    "w-full gap-2 rounded-2xl border border-slate-200 bg-white p-4 md:p-6"
+                ):
+                    ui.label("Enlaces importantes").classes(
+                        "text-lg font-semibold text-slate-900"
+                    ).props("role=heading aria-level=2")
+                    for link_url in point.important_links:
+                        ui.link(link_url, link_url).classes(
+                            "text-sm text-blue-700 break-all"
+                        )
 
             with ui.column().classes(
                 "w-full gap-3 rounded-2xl border border-slate-200 bg-white p-4 md:p-6"
