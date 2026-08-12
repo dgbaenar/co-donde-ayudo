@@ -195,6 +195,9 @@ def render_manage_help_point(
                             )
                             if need.commitments:
                                 with ui.column().classes("w-full gap-0.5"):
+                                    ui.label("Confirmaron ayuda:").classes(
+                                        "text-xs font-semibold text-slate-700"
+                                    )
                                     for commitment in need.commitments:
                                         text = f"• {commitment.name}"
                                         if commitment.note:

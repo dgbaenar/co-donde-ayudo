@@ -744,6 +744,7 @@ class ManageHelpPointCommitmentsTests(unittest.TestCase):
             for element in self.fake_ui.elements
             if element.kind == "label"
         ]
+        self.assertIn("Confirmaron ayuda:", labels)
         self.assertIn("• Ana — Voy para allá.", labels)
         self.assertIn("• Luis", labels)
 
