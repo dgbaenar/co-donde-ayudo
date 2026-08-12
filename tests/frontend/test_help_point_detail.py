@@ -748,7 +748,7 @@ class VoyAAyudarDialogTests(unittest.TestCase):
             for element in self.fake_ui.elements
             if element.kind == "label"
         ]
-        self.assertIn("1 persona dijo que va", labels)
+        self.assertIn("1 persona confirmó ayuda", labels)
 
     def test_plural_commitment_count_label(self) -> None:
         self._render(
@@ -778,7 +778,7 @@ class VoyAAyudarDialogTests(unittest.TestCase):
             for element in self.fake_ui.elements
             if element.kind == "label"
         ]
-        self.assertIn("3 personas dijeron que van", labels)
+        self.assertIn("3 personas confirmaron ayuda", labels)
 
 
 if __name__ == "__main__":

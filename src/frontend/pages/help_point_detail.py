@@ -33,8 +33,8 @@ def commitment_count_text(count: int) -> str | None:
     if count <= 0:
         return None
     if count == 1:
-        return "1 persona dijo que va"
-    return f"{count} personas dijeron que van"
+        return "1 persona confirmó ayuda"
+    return f"{count} personas confirmaron ayuda"
 
 
 def render_help_point_detail_for_path(
