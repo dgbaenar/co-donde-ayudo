@@ -306,9 +306,9 @@ class HelpPointServiceTests(unittest.TestCase):
 
         self.assertEqual(result.id, point.id)
         self.assertEqual(result.name, "Parque Central")
+        self.assertEqual(result.coordinator_name, point.coordinator_name)
+        self.assertEqual(result.coordinator_contact, point.coordinator_contact)
         public_fields = {field.name for field in dataclasses.fields(result)}
-        self.assertNotIn("coordinator_name", public_fields)
-        self.assertNotIn("coordinator_contact", public_fields)
         self.assertNotIn("admin_token", public_fields)
 
     def test_returns_none_when_public_help_point_is_missing_or_inactive(self) -> None:
@@ -342,17 +342,26 @@ class HelpPointServiceTests(unittest.TestCase):
         point = self.service.create_help_point(self.command()).point
 
         updated = self.service.update_help_point_info(
-            point, point.admin_token, "  Nueva descripción  ", "  Nuevo contacto  "
+            point,
+            point.admin_token,
+            "  Nuevo nombre  ",
+            "  Nueva descripción  ",
+            "  Nuevo contacto  ",
         )
 
+        self.assertEqual(updated.name, "Nuevo nombre")
         self.assertEqual(updated.description, "Nueva descripción")
         self.assertEqual(updated.coordinator_contact, "Nuevo contacto")
         self.assertIsNone(updated.additional_affected_areas)
         self.assertEqual(self.repository.updated, updated)
         with self.assertRaisesRegex(PermissionError, "admin token"):
-            self.service.update_help_point_info(point, "incorrect", "Descripción", "Contacto")
+            self.service.update_help_point_info(
+                point, "incorrect", "Nombre", "Descripción", "Contacto"
+            )
         with self.assertRaisesRegex(ValueError, "description"):
-            self.service.update_help_point_info(point, point.admin_token, " ", "Contacto")
+            self.service.update_help_point_info(
+                point, point.admin_token, "Nombre", " ", "Contacto"
+            )
 
     def test_updates_info_with_additional_affected_areas_provided(self) -> None:
         point = self.service.create_help_point(self.command()).point
@@ -360,6 +369,7 @@ class HelpPointServiceTests(unittest.TestCase):
         updated = self.service.update_help_point_info(
             point,
             point.admin_token,
+            "Nombre",
             "Descripción",
             "Contacto",
             "  Roldanillo y La Unión  ",
@@ -371,11 +381,11 @@ class HelpPointServiceTests(unittest.TestCase):
     def test_updates_info_normalizes_blank_additional_affected_areas_to_none(self) -> None:
         point = self.service.create_help_point(self.command()).point
         with_extra = self.service.update_help_point_info(
-            point, point.admin_token, "Descripción", "Contacto", "Roldanillo"
+            point, point.admin_token, "Nombre", "Descripción", "Contacto", "Roldanillo"
         )
 
         cleared = self.service.update_help_point_info(
-            with_extra, point.admin_token, "Descripción", "Contacto", "   "
+            with_extra, point.admin_token, "Nombre", "Descripción", "Contacto", "   "
         )
 
         self.assertIsNone(cleared.additional_affected_areas)
@@ -386,7 +396,7 @@ class HelpPointServiceTests(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "additional_affected_areas"):
             self.service.update_help_point_info(
-                point, point.admin_token, "Descripción", "Contacto", "a" * 501
+                point, point.admin_token, "Nombre", "Descripción", "Contacto", "a" * 501
             )
 
     def test_create_commitment_persists_trimmed_name_and_note_for_a_needs_help_need(self) -> None:

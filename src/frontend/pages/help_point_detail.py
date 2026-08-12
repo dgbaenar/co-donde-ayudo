@@ -146,6 +146,12 @@ def render_help_point_detail(
                 ui.label(point.description).classes(
                     "text-base leading-relaxed text-slate-600"
                 )
+                ui.label(f"Coordina: {point.coordinator_name}").classes(
+                    "text-sm text-slate-600"
+                )
+                ui.label(f"Contacto: {point.coordinator_contact}").classes(
+                    "text-sm text-slate-600"
+                )
 
             with ui.grid().classes("w-full grid-cols-1 md:grid-cols-2 gap-3"):
                 with ui.column().classes(
