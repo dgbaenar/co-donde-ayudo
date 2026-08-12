@@ -10,7 +10,7 @@ from pathlib import Path
 from unittest.mock import patch
 from uuid import UUID, uuid4
 
-from backend.domain.models import CreatedHelpPoint, HelpPoint
+from backend.domain.models import CreatedHelpPoint, HelpPoint, HelpPointCategory
 from frontend.app import create_app
 from frontend.pages import create_help_point
 from frontend.pages.create_help_point import (
@@ -102,6 +102,7 @@ class RecordingHandler:
             admin_token="private-token",
             active=True,
             needs=(),
+            category=command.category,
         )
 
 
@@ -122,6 +123,7 @@ class CreateHelpPointTests(unittest.TestCase):
             longitude=-76.5320,
             coordinator_name=" Ana ",
             coordinator_contact=" Contacto local ",
+            category="Recolección de donaciones",
         )
 
     def test_build_command_uses_all_form_values_and_selected_categories(self) -> None:
@@ -139,6 +141,28 @@ class CreateHelpPointTests(unittest.TestCase):
         self.assertEqual(command.coordinator_name, "Ana")
         self.assertEqual(command.coordinator_contact, "Contacto local")
         self.assertEqual(command.category_ids, (self.water_id, self.blanket_id))
+        self.assertEqual(command.category, HelpPointCategory.DONATION_COLLECTION)
+
+    def test_build_command_rejects_missing_category(self) -> None:
+        values = FormValues(
+            name=self.values.name,
+            description=self.values.description,
+            affected_city=self.values.affected_city,
+            affected_department=self.values.affected_department,
+            city=self.values.city,
+            department=self.values.department,
+            address=self.values.address,
+            latitude=self.values.latitude,
+            longitude=self.values.longitude,
+            coordinator_name=self.values.coordinator_name,
+            coordinator_contact=self.values.coordinator_contact,
+            category="",
+        )
+
+        with self.assertRaisesRegex(
+            ValueError, "Completa todos los campos obligatorios antes de publicar."
+        ):
+            build_command(values, ("Agua",), self.categories)
 
     def test_build_command_converts_blank_affected_city_to_none(self) -> None:
         values = FormValues(
@@ -153,6 +177,7 @@ class CreateHelpPointTests(unittest.TestCase):
             longitude=self.values.longitude,
             coordinator_name=self.values.coordinator_name,
             coordinator_contact=self.values.coordinator_contact,
+            category="Recolección de donaciones",
         )
 
         command = build_command(values, ("Agua",), self.categories)
@@ -172,6 +197,7 @@ class CreateHelpPointTests(unittest.TestCase):
             longitude=self.values.longitude,
             coordinator_name=self.values.coordinator_name,
             coordinator_contact=self.values.coordinator_contact,
+            category="Recolección de donaciones",
         )
 
         command = build_command(values, ("Agua",), self.categories)
@@ -199,6 +225,7 @@ class CreateHelpPointTests(unittest.TestCase):
             coordinator_name=self.values.coordinator_name,
             coordinator_contact=self.values.coordinator_contact,
             additional_affected_areas="   ",
+            category="Recolección de donaciones",
         )
 
         command = build_command(values, ("Agua",), self.categories)
@@ -221,6 +248,7 @@ class CreateHelpPointTests(unittest.TestCase):
             coordinator_name=self.values.coordinator_name,
             coordinator_contact=self.values.coordinator_contact,
             additional_affected_areas="  Roldanillo y Zarzal ",
+            category="Recolección de donaciones",
         )
 
         command = build_command(values, ("Agua",), self.categories)
@@ -334,6 +362,7 @@ class CreateHelpPointTests(unittest.TestCase):
             longitude=self.values.longitude,
             coordinator_name=self.values.coordinator_name,
             coordinator_contact=self.values.coordinator_contact,
+            category="Recolección de donaciones",
         )
 
         with self.assertRaises(ValueError) as raised:
@@ -348,6 +377,7 @@ class CreateHelpPointTests(unittest.TestCase):
             affected_city="Roldanillo", affected_department="Valle del Cauca",
             city="Cali", department="Valle", address="Calle 5",
             latitude=None, longitude=None, coordinator_name="Ana", coordinator_contact="Local",
+            category="Recolección de donaciones",
         )
         custom_calls = []
         create_calls = []
@@ -401,6 +431,7 @@ class FrontendBoundaryTests(unittest.TestCase):
                 "deactivate_help_point",
                 "create_custom_category",
                 "update_help_point_info",
+                "update_help_point_category",
                 "authorize_coordinator_access",
                 "get_public_help_point",
                 "is_database_ready",
@@ -451,6 +482,7 @@ class CreateHelpPointResponsivePresentationTests(unittest.TestCase):
                     element.value = "Familias evacuadas reciben apoyo."
 
         select_values = {
+            "Categoría del punto": "Recolección de donaciones",
             "Departamento afectado": "Valle del Cauca",
             "Ciudad / Municipio afectado (opcional)": "Roldanillo",
             "Departamento del punto": "Valle del Cauca",
@@ -864,7 +896,9 @@ class CreateHelpPointResponsivePresentationTests(unittest.TestCase):
 
         async def geocode(address, city, department):
             geocode_calls.append((address, city, department))
-            return SimpleNamespace(latitude=3.4372, longitude=-76.5225)
+            return SimpleNamespace(
+                latitude=3.4372, longitude=-76.5225, is_low_confidence=False
+            )
 
         try:
             with patch.object(
@@ -919,6 +953,82 @@ class CreateHelpPointResponsivePresentationTests(unittest.TestCase):
         )
         self.assertEqual(coordinate_calls, [(3.4372, -76.5225)])
         self.assertEqual(address.value, "Calle 5 # 10-20")
+
+    def test_address_search_low_confidence_result_places_pin_and_warns(self) -> None:
+        fake_ui = RecordingUi()
+        original_ui = create_help_point.ui
+        create_help_point.ui = fake_ui
+        coordinate_calls = []
+        location = SimpleNamespace(
+            latitude=None,
+            longitude=None,
+            set_coordinates=lambda latitude, longitude: coordinate_calls.append(
+                (latitude, longitude)
+            ),
+        )
+
+        async def geocode(_address, _city, _department):
+            return SimpleNamespace(
+                latitude=3.4372, longitude=-76.5225, is_low_confidence=True
+            )
+
+        try:
+            with patch.object(
+                create_help_point,
+                "render_location_picker",
+                return_value=location,
+            ):
+                create_help_point.render_create_help_point(
+                    {},
+                    lambda _command: self.fail("must not publish"),
+                    lambda _name: self.fail("must not create category"),
+                    lambda: ("Antioquia", "Valle del Cauca"),
+                    self.list_localities,
+                    lambda: self.AFFECTED_DEPARTMENTS,
+                    geocode,
+                    "https://dondeayudo.example",
+                )
+                department = next(
+                    element
+                    for element in fake_ui.elements
+                    if element.kind == "select"
+                    and element.kwargs.get("label") == "Departamento del punto"
+                )
+                city = next(
+                    element
+                    for element in fake_ui.elements
+                    if element.kind == "select"
+                    and element.kwargs.get("label") == "Ciudad / Municipio del punto"
+                )
+                address = next(
+                    element
+                    for element in fake_ui.elements
+                    if element.kind == "input"
+                    and element.args == ("Dirección o referencia del lugar",)
+                )
+                department.value = "Valle del Cauca"
+                city.value = "Cali"
+                address.value = "Calle 5 # 10-20"
+
+                search = next(
+                    element
+                    for element in fake_ui.elements
+                    if element.kind == "button" and element.args == ("Buscar en el mapa",)
+                )
+                asyncio.run(search.kwargs["on_click"]())
+        finally:
+            create_help_point.ui = original_ui
+
+        self.assertEqual(coordinate_calls, [(3.4372, -76.5225)])
+        self.assertTrue(
+            any(
+                element.kind == "notify"
+                and element.kwargs.get("type") == "warning"
+                and element.args[0]
+                == "Toca el mapa para ubicar el punto correctamente."
+                for element in fake_ui.elements
+            )
+        )
 
     def test_address_search_none_or_error_keeps_address_and_shows_fallback(self) -> None:
         for provider_result in (None, RuntimeError("provider unavailable")):
@@ -1061,6 +1171,7 @@ class CreateHelpPointResponsivePresentationTests(unittest.TestCase):
                         longitude=-76.532,
                         coordinator_name="Ana",
                         coordinator_contact="Contacto local",
+                        category="Recolección de donaciones",
                     ),
                     ("Agua",),
                     {"Agua": category_id},
@@ -1432,6 +1543,95 @@ class CreateHelpPointResponsivePresentationTests(unittest.TestCase):
         self.assertEqual(create_calls, [])
         self.assertEqual(custom_calls, [])
         self.assertTrue(any(element.kind == "notify" and "ubicación" in element.args[0] for element in fake_ui.elements))
+
+    def test_missing_category_selection_notifies_without_calling_handlers(self) -> None:
+        fake_ui = RecordingUi()
+        original_ui = create_help_point.ui
+        create_help_point.ui = fake_ui
+        create_calls = []
+        category_id = uuid4()
+        try:
+            with patch.object(
+                create_help_point,
+                "render_location_picker",
+                return_value=SimpleNamespace(latitude=3.45, longitude=-76.53),
+            ):
+                create_help_point.render_create_help_point(
+                    {"Agua": category_id},
+                    lambda command: create_calls.append(command),
+                    lambda _name: self.fail("empty custom category must not be created"),
+                    lambda: ("Valle del Cauca",),
+                    self.list_localities,
+                    lambda: self.AFFECTED_DEPARTMENTS,
+                    lambda *_args: self.fail("geocoder must not run"),
+                    "https://dondeayudo.example",
+                )
+                self.fill_valid_form(fake_ui, need="Agua")
+                category_select = next(
+                    element
+                    for element in fake_ui.elements
+                    if element.kind == "select"
+                    and element.kwargs.get("label") == "Categoría del punto"
+                )
+                category_select.value = ""
+
+                publish = next(
+                    element
+                    for element in fake_ui.elements
+                    if element.kind == "button"
+                    and element.args == ("Publicar punto de ayuda",)
+                )
+                publish.kwargs["on_click"]()
+        finally:
+            create_help_point.ui = original_ui
+
+        self.assertEqual(create_calls, [])
+        self.assertTrue(
+            any(
+                element.kind == "notify" and element.kwargs.get("type") == "negative"
+                for element in fake_ui.elements
+            )
+        )
+
+    def test_publish_includes_selected_category_in_command(self) -> None:
+        fake_ui = RecordingUi()
+        original_ui = create_help_point.ui
+        create_help_point.ui = fake_ui
+        create_calls = []
+        category_id = uuid4()
+        try:
+            with patch.object(
+                create_help_point,
+                "render_location_picker",
+                return_value=SimpleNamespace(latitude=3.45, longitude=-76.53),
+            ):
+                create_help_point.render_create_help_point(
+                    {"Agua": category_id},
+                    lambda command: create_calls.append(command)
+                    or SimpleNamespace(admin_token="synthetic-token"),
+                    lambda _name: self.fail("empty custom category must not be created"),
+                    lambda: ("Valle del Cauca",),
+                    self.list_localities,
+                    lambda: self.AFFECTED_DEPARTMENTS,
+                    lambda *_args: self.fail("geocoder must not run"),
+                    "https://dondeayudo.example",
+                )
+                self.fill_valid_form(fake_ui, need="Agua")
+
+                publish = next(
+                    element
+                    for element in fake_ui.elements
+                    if element.kind == "button"
+                    and element.args == ("Publicar punto de ayuda",)
+                )
+                publish.kwargs["on_click"]()
+        finally:
+            create_help_point.ui = original_ui
+
+        self.assertEqual(len(create_calls), 1)
+        self.assertEqual(
+            create_calls[0].category, HelpPointCategory.DONATION_COLLECTION
+        )
 
     def test_add_custom_category_button_and_enter_key_update_select_without_backend_calls(
         self,

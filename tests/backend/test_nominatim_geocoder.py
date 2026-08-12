@@ -93,7 +93,9 @@ def test_search_limits_query_to_colombia_and_identifies_application() -> None:
         )
     )
 
-    assert result == GeocodedLocation(latitude=3.4372, longitude=-76.5225)
+    assert result == GeocodedLocation(
+        latitude=3.4372, longitude=-76.5225, is_low_confidence=True
+    )
     query = parse_qs(urlparse(request.urls[0]).query)
     assert query["countrycodes"] == ["co"]
     assert query["limit"] == ["1"]
@@ -170,6 +172,39 @@ def test_two_instances_share_an_injected_limiter_under_concurrency() -> None:
     assert request.called_at[1] - request.called_at[0] >= 0.018
 
 
+def test_search_marks_high_importance_match_as_not_low_confidence() -> None:
+    payload = '[{"lat":"3.4372","lon":"-76.5225","importance":"0.8"}]'
+
+    result = asyncio.run(
+        geocoder(request=RecordingRequest(payload)).search(
+            "Calle 5 # 10-20", "Cali", "Valle del Cauca"
+        )
+    )
+
+    assert result == GeocodedLocation(
+        latitude=3.4372, longitude=-76.5225, is_low_confidence=False
+    )
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        '[{"lat":"3.4372","lon":"-76.5225","importance":"0.1"}]',
+        '[{"lat":"3.4372","lon":"-76.5225"}]',
+    ],
+)
+def test_search_flags_low_or_missing_importance_as_low_confidence(payload: str) -> None:
+    result = asyncio.run(
+        geocoder(request=RecordingRequest(payload)).search(
+            "Calle 5 # 10-20", "Cali", "Valle del Cauca"
+        )
+    )
+
+    assert result == GeocodedLocation(
+        latitude=3.4372, longitude=-76.5225, is_low_confidence=True
+    )
+
+
 def test_default_request_uses_a_short_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
     captured: dict[str, float] = {}
 
@@ -190,5 +225,7 @@ def test_default_request_uses_a_short_timeout(monkeypatch: pytest.MonkeyPatch) -
 
     result = asyncio.run(adapter.search("Calle 5", "Cali", "Valle del Cauca"))
 
-    assert result == GeocodedLocation(latitude=3.4372, longitude=-76.5225)
+    assert result == GeocodedLocation(
+        latitude=3.4372, longitude=-76.5225, is_low_confidence=True
+    )
     assert captured["timeout"] == 5.0

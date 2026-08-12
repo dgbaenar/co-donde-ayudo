@@ -7,7 +7,7 @@ from uuid import uuid4
 
 from backend.application.services import HelpPointService
 from backend.domain.emergency_scope import AFFECTED_DEPARTMENTS, list_affected_departments
-from backend.domain.models import Commitment, CreateHelpPoint, NeedStatus
+from backend.domain.models import Commitment, CreateHelpPoint, HelpPointCategory, NeedStatus
 
 
 class FakeRepository:
@@ -118,6 +118,7 @@ class HelpPointServiceTests(unittest.TestCase):
             "coordinator_name": "Ana",
             "coordinator_contact": "Contacto local",
             "category_ids": self.categories,
+            "category": HelpPointCategory.DONATION_COLLECTION,
         }
         values.update(changes)
         return CreateHelpPoint(**values)
@@ -273,6 +274,18 @@ class HelpPointServiceTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "category"):
             self.command(category_ids=())
 
+    def test_create_command_rejects_invalid_help_point_category(self) -> None:
+        with self.assertRaisesRegex(ValueError, "HelpPointCategory"):
+            self.command(category="Not a real category")
+
+    def test_create_persists_the_help_point_category(self) -> None:
+        created = self.service.create_help_point(
+            self.command(category=HelpPointCategory.DEBRIS_REMOVAL)
+        ).point
+
+        self.assertIs(created.category, HelpPointCategory.DEBRIS_REMOVAL)
+        self.assertIs(self.repository.created.category, HelpPointCategory.DEBRIS_REMOVAL)
+
     def test_add_need_persists_an_immutable_point_with_needs_help(self) -> None:
         created = self.service.create_help_point(self.command()).point
         category_id = uuid4()
@@ -323,6 +336,34 @@ class HelpPointServiceTests(unittest.TestCase):
 
         self.assertFalse(updated.active)
         self.assertEqual(self.repository.updated, updated)
+
+    def test_update_help_point_category_changes_and_persists_the_value(self) -> None:
+        created = self.service.create_help_point(
+            self.command(category=HelpPointCategory.DONATION_COLLECTION)
+        ).point
+
+        updated = self.service.update_help_point_category(
+            created, created.admin_token, HelpPointCategory.RESCUE_OPERATIONS
+        )
+
+        self.assertIs(updated.category, HelpPointCategory.RESCUE_OPERATIONS)
+        self.assertEqual(self.repository.updated, updated)
+
+    def test_update_help_point_category_rejects_incorrect_admin_token(self) -> None:
+        created = self.service.create_help_point(self.command()).point
+
+        with self.assertRaisesRegex(PermissionError, "admin token"):
+            self.service.update_help_point_category(
+                created, "incorrect", HelpPointCategory.RESCUE_OPERATIONS
+            )
+
+    def test_update_help_point_category_rejects_invalid_value(self) -> None:
+        created = self.service.create_help_point(self.command()).point
+
+        with self.assertRaisesRegex(ValueError, "HelpPointCategory"):
+            self.service.update_help_point_category(
+                created, created.admin_token, "Not a real category"
+            )
 
     def test_lists_active_categories_from_repository(self) -> None:
         categories = {"Agua": uuid4()}

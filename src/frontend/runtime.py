@@ -46,6 +46,7 @@ def build_runtime(settings: ApplicationSettings) -> tuple[str, bool]:
         remove_need=service.remove_need,
         change_need_status=service.change_need_status,
         update_help_point_info=service.update_help_point_info,
+        update_help_point_category=service.update_help_point_category,
         deactivate_help_point=service.deactivate_help_point,
         authorize_coordinator_access=access_service.authorize,
         get_public_help_point=service.get_public_help_point,

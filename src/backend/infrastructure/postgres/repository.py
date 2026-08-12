@@ -6,7 +6,7 @@ from uuid import UUID, uuid4
 
 from sqlalchemy import select
 
-from backend.domain.models import Commitment, HelpPoint, Need, NeedStatus
+from backend.domain.models import Commitment, HelpPoint, HelpPointCategory, Need, NeedStatus
 from backend.infrastructure.postgres.orm_models import (
     CommitmentRow,
     HelpPointRow,
@@ -54,7 +54,11 @@ class PostgresHelpPointRepository:
 
     def list_active_help_points(self) -> tuple[HelpPoint, ...]:
         with self._session_factory() as session:
-            rows = session.scalars(select(HelpPointRow).where(HelpPointRow.activo.is_(True))).all()
+            rows = session.scalars(
+                select(HelpPointRow)
+                .where(HelpPointRow.activo.is_(True))
+                .order_by(HelpPointRow.created_at.desc())
+            ).all()
             return tuple(self._point_from_row(row) for row in rows)
 
     def get_help_point_by_admin_token(self, admin_token: str) -> HelpPoint | None:
@@ -125,6 +129,7 @@ class PostgresHelpPointRepository:
         row.departamento_afectado = point.affected_department
         row.zonas_adicionales = point.additional_affected_areas
         row.enlaces_importantes = list(point.important_links)
+        row.categoria = point.category.value
         row.latitude = point.latitude
         row.longitude = point.longitude
         row.nombre_coordinador = point.coordinator_name
@@ -145,6 +150,7 @@ class PostgresHelpPointRepository:
             affected_department=row.departamento_afectado,
             additional_affected_areas=row.zonas_adicionales,
             important_links=tuple(row.enlaces_importantes),
+            category=HelpPointCategory(row.categoria),
             latitude=row.latitude,
             longitude=row.longitude,
             coordinator_name=row.nombre_coordinador,

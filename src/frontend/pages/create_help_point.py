@@ -11,7 +11,7 @@ from uuid import UUID
 
 from nicegui import ui
 
-from backend.domain.models import CreateHelpPoint, CreatedHelpPoint
+from backend.domain.models import CreateHelpPoint, CreatedHelpPoint, HelpPointCategory
 from frontend.components.location_picker import render_location_picker
 
 logger = logging.getLogger(__name__)
@@ -25,6 +25,7 @@ GeocodeAddress = Callable[[str, str, str], Awaitable[object | None]]
 
 _BOUNDED_MENU_PROPS = (
     'outlined dense behavior=menu color=blue-grey-9 '
+    'transition-show=none transition-hide=none '
     'popup-content-class=bounded-select-menu '
     'popup-content-style="max-height: 40vh !important; overflow-y: auto"'
 )
@@ -33,6 +34,7 @@ _CUSTOM_CATEGORY_PLACEHOLDER_ID = UUID(int=0)
 _PUBLICATION_FAILURE_MESSAGE = "No fue posible publicar el punto. Inténtalo de nuevo."
 _DUPLICATE_CUSTOM_CATEGORY_MESSAGE = "Esa necesidad ya está en la lista."
 _DUPLICATE_LINK_MESSAGE = "Ese enlace ya está en la lista."
+_LOW_CONFIDENCE_ADDRESS_MESSAGE = "Toca el mapa para ubicar el punto correctamente."
 
 
 class _PublicationHandlerError(Exception):
@@ -52,6 +54,7 @@ class FormValues:
     longitude: float | None
     coordinator_name: str
     coordinator_contact: str
+    category: str
     additional_affected_areas: str | None = ""
 
 
@@ -76,6 +79,7 @@ def build_command(
         raise ValueError(f"unknown category: {error.args[0]}") from error
 
     try:
+        category = HelpPointCategory(values.category)
         return CreateHelpPoint(
             name=values.name.strip(),
             description=values.description.strip(),
@@ -89,6 +93,7 @@ def build_command(
             coordinator_name=values.coordinator_name.strip(),
             coordinator_contact=values.coordinator_contact.strip(),
             category_ids=category_ids,
+            category=category,
             additional_affected_areas=(values.additional_affected_areas or "").strip() or None,
             important_links=tuple(important_links),
         )
@@ -197,6 +202,13 @@ def render_create_help_point(
                     "organizando ayuda desde este parque."
                 ),
             ).classes("w-full")
+            category = ui.select(
+                options={"": "Selecciona una categoría", **{
+                    member.value: member.value for member in HelpPointCategory
+                }},
+                value="",
+                label="Categoría del punto",
+            ).classes("w-full").props(_BOUNDED_MENU_PROPS)
             ui.label("Zona que recibirá la ayuda").classes("text-h6")
             affected_department = ui.select(
                 options={
@@ -259,6 +271,8 @@ def render_create_help_point(
                     )
                     return
                 location.set_coordinates(geocoded.latitude, geocoded.longitude)
+                if geocoded.is_low_confidence:
+                    ui.notify(_LOW_CONFIDENCE_ADDRESS_MESSAGE, type="warning")
 
             ui.button("Buscar en el mapa", on_click=search_address).classes(
                 "w-full min-h-[44px]"
@@ -362,6 +376,7 @@ def render_create_help_point(
                     longitude=location.longitude,
                     coordinator_name=coordinator_name.value or "",
                     coordinator_contact=coordinator_contact.value or "",
+                    category=category.value or "",
                     additional_affected_areas=additional_affected_areas.value or "",
                 )
                 submitting = True
