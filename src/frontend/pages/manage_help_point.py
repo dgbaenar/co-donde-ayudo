@@ -265,7 +265,7 @@ def render_manage_help_point(
                                     "Quitar", on_click=remove_dialog.open
                                 ).classes(
                                     "w-full sm:flex-1 min-h-[44px]"
-                                ).props("outline color=red-9")
+                                ).props("unelevated color=red-9")
 
                 with ui.card().classes(
                     "w-full gap-3 rounded-2xl border border-slate-200 bg-white p-4"
@@ -293,7 +293,7 @@ def render_manage_help_point(
                         ),
                     ).classes(
                         "w-full min-h-[44px]"
-                    ).props("outline color=primary")
+                    ).props("unelevated color=primary")
 
                 with ui.card().classes(
                     "w-full gap-3 rounded-2xl border border-red-200 bg-white p-4"

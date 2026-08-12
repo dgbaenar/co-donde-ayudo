@@ -449,10 +449,10 @@ class ManageHelpPointResponsivePresentationTests(unittest.TestCase):
             self.assertIn("unelevated", buttons[text].props_value)
             self.assertIn("color=primary", buttons[text].props_value)
             self.assertNotIn("color=green-9", buttons[text].props_value)
-        self.assertIn("outline", buttons["Agregar necesidad"].props_value)
+        self.assertIn("unelevated", buttons["Agregar necesidad"].props_value)
         self.assertIn("color=primary", buttons["Agregar necesidad"].props_value)
         self.assertNotIn("color=green-9", buttons["Agregar necesidad"].props_value)
-        self.assertIn("outline", buttons["Quitar"].props_value)
+        self.assertIn("unelevated", buttons["Quitar"].props_value)
         self.assertIn("color=red-9", buttons["Quitar"].props_value)
 
         category_selector = next(

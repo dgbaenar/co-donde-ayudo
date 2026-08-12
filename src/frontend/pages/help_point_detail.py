@@ -115,7 +115,7 @@ def render_commitment_control(
 
     ui.button("Voy a ayudar", on_click=commit_dialog.open).classes(
         "shrink-0 min-h-[44px] px-3"
-    ).props("outline color=primary")
+    ).props("unelevated color=primary")
 
 
 def render_help_point_detail(
