@@ -11,8 +11,8 @@ from alembic import op
 import sqlalchemy as sa
 
 
-revision = "0004_help_point_optional_affected_city"
-down_revision = "0003_help_point_additional_areas"
+revision = "0005_help_point_optional_affected_city"
+down_revision = "0004_widen_alembic_version"
 branch_labels = None
 depends_on = None
 
