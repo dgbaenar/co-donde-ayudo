@@ -3,18 +3,19 @@
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable, Mapping, Sequence
-from dataclasses import dataclass
 import json
 import logging
+from collections.abc import Awaitable, Callable, Mapping, Sequence
+from dataclasses import dataclass
 from urllib.parse import urlsplit
 from uuid import UUID
 
 from nicegui import ui
 
 from backend.domain.models import (
-    CreateHelpPoint,
+    AffectedArea,
     CreatedHelpPoint,
+    CreateHelpPoint,
     HelpPointCategory,
     NewHelpPointLocation,
 )
@@ -57,11 +58,16 @@ class LocationValues:
 
 
 @dataclass(frozen=True, slots=True)
+class AffectedAreaValues:
+    department: str
+    city: str
+
+
+@dataclass(frozen=True, slots=True)
 class FormValues:
     name: str
     description: str
-    affected_city: str
-    affected_department: str
+    affected_areas: tuple[AffectedAreaValues, ...]
     locations: tuple[LocationValues, ...]
     coordinator_name: str
     coordinator_contact: str
@@ -89,6 +95,8 @@ def build_command(
         for location in values.locations
     ):
         raise ValueError("Selecciona una ubicación en el mapa.")
+    if not values.affected_areas:
+        raise ValueError("Agrega al menos una zona afectada.")
     try:
         category_ids = tuple(categories[name] for name in selected_categories)
     except KeyError as error:
@@ -99,8 +107,13 @@ def build_command(
         return CreateHelpPoint(
             name=values.name.strip(),
             description=values.description.strip(),
-            affected_city=values.affected_city.strip() or None,
-            affected_department=values.affected_department.strip(),
+            affected_areas=tuple(
+                AffectedArea(
+                    department=area.department.strip(),
+                    city=area.city.strip() or None,
+                )
+                for area in values.affected_areas
+            ),
             locations=tuple(
                 NewHelpPointLocation(
                     address=location.address.strip(),
@@ -199,13 +212,6 @@ def render_create_help_point(
             locality_select.disable()
         locality_select.update()
 
-    def change_affected_department() -> None:
-        update_locality_select(
-            affected_department,
-            affected_city,
-            no_selection_label="Toda la zona del departamento (opcional)",
-        )
-
     departments = tuple(list_departments())
     affected_departments = tuple(list_affected_departments())
     with ui.column().classes("w-full max-w-md md:max-w-2xl mx-auto gap-3 p-4"):
@@ -228,21 +234,60 @@ def render_create_help_point(
                 label="Categoría del punto",
             ).classes("w-full").props(_BOUNDED_MENU_PROPS)
             ui.label("Zona que recibirá la ayuda").classes("text-h6")
-            affected_department = ui.select(
-                options={
-                    "": "Selecciona un departamento",
-                    **{department: department for department in affected_departments},
-                },
-                value="",
-                label="Departamento afectado",
-                on_change=change_affected_department,
-            ).classes("w-full").props(_BOUNDED_MENU_PROPS)
-            affected_city = ui.select(
-                options={"": "Selecciona primero un departamento"},
-                value="",
-                label="Ciudad / Municipio afectado (opcional)",
-            ).classes("w-full").props(_BOUNDED_MENU_PROPS)
-            affected_city.disable()
+            affected_areas_container = ui.column().classes("w-full gap-2")
+            affected_area_blocks: list[dict] = []
+
+            def render_affected_area_block() -> dict:
+                with affected_areas_container:
+                    with ui.card().classes(
+                        "w-full gap-2 rounded-xl border border-slate-200 p-3"
+                    ) as block_card:
+                        block_department = ui.select(
+                            options={
+                                "": "Selecciona un departamento",
+                                **{
+                                    department: department
+                                    for department in affected_departments
+                                },
+                            },
+                            value="",
+                            label="Departamento afectado",
+                        ).classes("w-full").props(_BOUNDED_MENU_PROPS)
+                        block_city = ui.select(
+                            options={"": "Selecciona primero un departamento"},
+                            value="",
+                            label="Ciudad / Municipio afectado (opcional)",
+                        ).classes("w-full").props(_BOUNDED_MENU_PROPS)
+                        block_city.disable()
+
+                        def change_block_department() -> None:
+                            update_locality_select(
+                                block_department,
+                                block_city,
+                                no_selection_label=(
+                                    "Toda la zona del departamento (opcional)"
+                                ),
+                            )
+
+                        block_department.on_value_change(change_block_department)
+
+                        block = {"department": block_department, "city": block_city}
+                        affected_area_blocks.append(block)
+
+                        def remove_affected_area() -> None:
+                            affected_area_blocks.remove(block)
+                            block_card.visible = False
+
+                        ui.button(
+                            "Quitar", on_click=remove_affected_area
+                        ).classes("w-full min-h-[44px]").props("flat color=red-9")
+
+                        return block
+
+            render_affected_area_block()
+            ui.button(
+                "Agregar otra zona afectada", on_click=render_affected_area_block
+            ).classes("w-full min-h-[44px]").props("outline")
             additional_affected_areas = ui.textarea(
                 "¿Hay otras zonas que también recibirán ayuda? (opcional)"
             ).classes("w-full")
@@ -417,7 +462,7 @@ def render_create_help_point(
                             ),
                         ).classes("min-h-[44px] shrink-0").props("flat")
 
-            ui.label("Enlaces importantes (opcional)").classes("text-h6")
+            ui.label("Enlaces importantes").classes("text-h6")
             with ui.row().classes("w-full gap-2 items-end flex-nowrap"):
                 link_input = ui.input("Enlace importante (URL)").classes(
                     "flex-1 min-w-0"
@@ -436,8 +481,13 @@ def render_create_help_point(
                 values = FormValues(
                     name=name.value or "",
                     description=description.value or "",
-                    affected_city=affected_city.value or "",
-                    affected_department=affected_department.value or "",
+                    affected_areas=tuple(
+                        AffectedAreaValues(
+                            department=block["department"].value or "",
+                            city=block["city"].value or "",
+                        )
+                        for block in affected_area_blocks
+                    ),
                     locations=tuple(
                         LocationValues(
                             address=block["address"].value or "",

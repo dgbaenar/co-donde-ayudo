@@ -2,15 +2,20 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
-import logging
 from uuid import UUID
 
 from nicegui import ui
 
 from backend.domain.models import Need, NeedStatus, PublicHelpPoint
-from frontend.components.help_point_map import render_help_point_map, status_line
+from frontend.components.help_point_map import (
+    describe_affected_areas,
+    format_short_date,
+    render_help_point_map,
+    status_line,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -177,6 +182,9 @@ def render_help_point_detail(
                     ui.label(f"Contacto: {point.coordinator_contact}").classes(
                         "text-base text-slate-700"
                     )
+                ui.label(f"Publicado el {format_short_date(point.created_at)}").classes(
+                    "text-xs text-slate-400 mt-1"
+                )
                 render_updated_at(point.updated_at)
 
             with ui.grid().classes("w-full grid-cols-1 md:grid-cols-2 gap-3"):
@@ -186,11 +194,7 @@ def render_help_point_detail(
                     ui.label("Ayuda destinada a").classes(
                         "text-lg font-semibold text-slate-900"
                     ).props("role=heading aria-level=2")
-                    affected_area = (
-                        f"{point.affected_city}, {point.affected_department}"
-                        if point.affected_city
-                        else f"Todo el departamento de {point.affected_department}"
-                    )
+                    affected_area = describe_affected_areas(point.affected_areas)
                     ui.label(affected_area).classes("text-slate-700")
                     if point.additional_affected_areas:
                         ui.label(

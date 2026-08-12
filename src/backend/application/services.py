@@ -9,6 +9,7 @@ from uuid import UUID, uuid4
 
 from backend.domain.emergency_scope import AFFECTED_DEPARTMENTS
 from backend.domain.models import (
+    AffectedArea,
     Commitment,
     CreateHelpPoint,
     CreatedHelpPoint,
@@ -56,21 +57,23 @@ class HelpPointService:
         self._location_catalog = location_catalog
 
     def create_help_point(self, command: CreateHelpPoint) -> CreatedHelpPoint:
-        affected_city = (
-            command.affected_city.strip() if command.affected_city is not None else ""
-        ) or None
-        affected_department = command.affected_department.strip()
-        if affected_department not in AFFECTED_DEPARTMENTS:
-            raise ValueError("affected department is outside active emergency scope")
+        normalized_areas = []
+        for area in command.affected_areas:
+            department = area.department.strip()
+            city = (area.city.strip() if area.city is not None else "") or None
+            if department not in AFFECTED_DEPARTMENTS:
+                raise ValueError("affected department is outside active emergency scope")
+            if city is not None and city not in self._location_catalog.list_localities(
+                department
+            ):
+                raise ValueError("affected city does not belong to affected department")
+            normalized_areas.append(AffectedArea(department=department, city=city))
+        affected_areas = tuple(normalized_areas)
         for location in command.locations:
             city = location.city.strip()
             department = location.department.strip()
             if city not in self._location_catalog.list_localities(department):
                 raise ValueError("city does not belong to department")
-        if affected_city is not None and affected_city not in (
-            self._location_catalog.list_localities(affected_department)
-        ):
-            raise ValueError("affected city does not belong to affected department")
         token = secrets.token_urlsafe(32)
         needs = tuple(
             Need(id=uuid4(), category_id=category_id, status=NeedStatus.NEEDS_HELP)
@@ -91,8 +94,7 @@ class HelpPointService:
             id=uuid4(),
             name=command.name.strip(),
             description=command.description.strip(),
-            affected_city=affected_city,
-            affected_department=affected_department,
+            affected_areas=affected_areas,
             locations=locations,
             coordinator_name=command.coordinator_name.strip(),
             coordinator_contact=command.coordinator_contact.strip(),
@@ -303,14 +305,14 @@ class HelpPointService:
             id=point.id,
             name=point.name,
             description=point.description,
-            affected_city=point.affected_city,
-            affected_department=point.affected_department,
+            affected_areas=point.affected_areas,
             locations=point.locations,
             coordinator_name=point.coordinator_name,
             coordinator_contact=point.coordinator_contact,
             active=point.active,
             needs=tuple(replace(need, commitments=()) for need in point.needs),
             category=point.category,
+            created_at=point.created_at,
             updated_at=point.updated_at,
             additional_affected_areas=point.additional_affected_areas,
             important_links=point.important_links,

@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
 from backend.domain.models import (
+    AffectedArea,
     Commitment,
     HelpPoint,
     HelpPointCategory,
@@ -17,6 +18,7 @@ from backend.infrastructure.postgres.orm_models import CommitmentRow, HelpPointR
 from backend.infrastructure.postgres.repository import PostgresHelpPointRepository
 
 FIXED_UPDATED_AT = datetime(2026, 8, 12, tzinfo=UTC)
+FIXED_CREATED_AT = datetime(2026, 8, 1, tzinfo=UTC)
 
 
 class ScalarResult:
@@ -55,6 +57,7 @@ class Session:
     def flush(self) -> None:
         for row in self.added:
             if isinstance(row, HelpPointRow):
+                row.created_at = FIXED_CREATED_AT
                 row.updated_at = FIXED_UPDATED_AT
         for row in self.rows.values():
             if isinstance(row, HelpPointRow):
@@ -81,10 +84,13 @@ class Factory:
 
 def point(
     additional_affected_areas: str | None = None,
-    affected_city: str | None = "Roldanillo",
-    important_links: tuple[str, ...] = (),
+    affected_areas: tuple[AffectedArea, ...] = (
+        AffectedArea(department="Valle del Cauca", city="Roldanillo"),
+    ),
+    important_links: tuple[str, ...] = ("https://example.com/ayuda",),
     category: HelpPointCategory = HelpPointCategory.DONATION_COLLECTION,
     locations: tuple[HelpPointLocation, ...] | None = None,
+    created_at: datetime = FIXED_CREATED_AT,
 ) -> HelpPoint:
     if locations is None:
         locations = (
@@ -99,11 +105,12 @@ def point(
         )
     return HelpPoint(
         id=UUID("00000000-0000-0000-0000-000000000001"), name="Parque", description="Ayuda",
-        affected_city=affected_city, affected_department="Valle del Cauca",
+        affected_areas=affected_areas,
         locations=locations, coordinator_name="Ana",
         coordinator_contact="Contacto", admin_token="x" * 40, active=True,
         needs=(Need(UUID("00000000-0000-0000-0000-000000000010"), UUID("00000000-0000-0000-0000-000000000100"), NeedStatus.NEEDS_HELP),),
         category=category,
+        created_at=created_at,
         updated_at=FIXED_UPDATED_AT,
         additional_affected_areas=additional_affected_areas,
         important_links=important_links,
@@ -123,12 +130,37 @@ class RepositoryTests(unittest.TestCase):
         self.assertEqual(location_row.direccion, "Calle 5 # 10-20")
         self.assertEqual(location_row.ciudad, "Cali")
         self.assertEqual(location_row.departamento, "Valle del Cauca")
-        self.assertEqual(session.added[0].ciudad_afectada, "Roldanillo")
-        self.assertEqual(session.added[0].departamento_afectado, "Valle del Cauca")
+        self.assertEqual(len(session.added[0].affected_areas), 1)
+        area_row = session.added[0].affected_areas[0]
+        self.assertEqual(area_row.departamento, "Valle del Cauca")
+        self.assertEqual(area_row.municipio, "Roldanillo")
         restored = PostgresHelpPointRepository._point_from_row(session.added[0])
         self.assertEqual(restored.locations, point().locations)
-        self.assertEqual(restored.affected_city, point().affected_city)
-        self.assertEqual(restored.affected_department, point().affected_department)
+        self.assertEqual(restored.affected_areas, point().affected_areas)
+
+    def test_create_round_trips_multiple_affected_areas(self) -> None:
+        session = Session()
+        source = point(
+            affected_areas=(
+                AffectedArea(department="Caldas", city="Manizales"),
+                AffectedArea(department="Valle del Cauca", city="Roldanillo"),
+            )
+        )
+        PostgresHelpPointRepository(Factory(session)).create_help_point(source)
+
+        row = session.added[0]
+        self.assertEqual(
+            [(area.departamento, area.municipio) for area in row.affected_areas],
+            [("Caldas", "Manizales"), ("Valle del Cauca", "Roldanillo")],
+        )
+        restored = PostgresHelpPointRepository._point_from_row(row)
+        self.assertEqual(
+            restored.affected_areas,
+            (
+                AffectedArea(department="Caldas", city="Manizales"),
+                AffectedArea(department="Valle del Cauca", city="Roldanillo"),
+            ),
+        )
 
     def test_create_round_trips_additional_affected_areas_when_present(self) -> None:
         session = Session()
@@ -186,16 +218,19 @@ class RepositoryTests(unittest.TestCase):
         restored = PostgresHelpPointRepository._point_from_row(row)
         self.assertIs(restored.category, HelpPointCategory.RESCUE_OPERATIONS)
 
-    def test_create_round_trips_affected_city_when_none(self) -> None:
+    def test_create_round_trips_affected_area_with_whole_department_city_none(self) -> None:
         session = Session()
-        source = point(affected_city=None)
+        source = point(
+            affected_areas=(AffectedArea(department="Valle del Cauca", city=None),)
+        )
         PostgresHelpPointRepository(Factory(session)).create_help_point(source)
 
         row = session.added[0]
-        self.assertIsNone(row.ciudad_afectada)
+        self.assertIsNone(row.affected_areas[0].municipio)
         restored = PostgresHelpPointRepository._point_from_row(row)
-        self.assertIsNone(restored.affected_city)
-        self.assertEqual(restored.affected_department, "Valle del Cauca")
+        self.assertEqual(
+            restored.affected_areas, (AffectedArea(department="Valle del Cauca", city=None),)
+        )
 
     def test_update_changes_existing_need_without_deleting_it(self) -> None:
         original = point()
@@ -270,6 +305,37 @@ class RepositoryTests(unittest.TestCase):
         }
         self.assertEqual(inserted_ids, {UUID("00000000-0000-0000-0000-000000000023")})
 
+    def test_update_reconciles_affected_areas_by_department_and_city(self) -> None:
+        original = point(
+            affected_areas=(
+                AffectedArea(department="Caldas", city="Manizales"),
+                AffectedArea(department="Valle del Cauca", city="Roldanillo"),
+            )
+        )
+        existing = PostgresHelpPointRepository._row_from_point(original)
+        kept_area_row = next(
+            area for area in existing.affected_areas if area.departamento == "Caldas"
+        )
+        session = Session()
+        session.rows[original.id] = existing
+        updated = replace(
+            original,
+            affected_areas=(
+                AffectedArea(department="Caldas", city="Manizales"),
+                AffectedArea(department="Quindío", city=None),
+            ),
+        )
+
+        result = PostgresHelpPointRepository(Factory(session)).update_help_point(updated)
+
+        self.assertEqual(result, updated)
+        self.assertEqual(len(session.deleted), 1)
+        self.assertEqual(session.deleted[0].departamento, "Valle del Cauca")
+        self.assertIn(kept_area_row, existing.affected_areas)
+        inserted = [area for area in existing.affected_areas if area.departamento == "Quindío"]
+        self.assertEqual(len(inserted), 1)
+        self.assertIsNone(inserted[0].municipio)
+
     def test_point_from_row_maps_commitments_onto_their_need(self) -> None:
         original = point()
         row = PostgresHelpPointRepository._row_from_point(original)
@@ -327,6 +393,7 @@ class RepositoryTests(unittest.TestCase):
     def test_get_help_point_by_need_id_returns_full_point_when_need_exists(self) -> None:
         original = point()
         row = PostgresHelpPointRepository._row_from_point(original)
+        row.created_at = FIXED_CREATED_AT
         row.updated_at = FIXED_UPDATED_AT
         session = Session()
         session.need_rows[row.needs[0].id] = row.needs[0]

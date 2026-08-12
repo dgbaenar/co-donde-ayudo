@@ -7,6 +7,7 @@ from uuid import UUID, uuid4
 from sqlalchemy import select
 
 from backend.domain.models import (
+    AffectedArea,
     Commitment,
     HelpPoint,
     HelpPointCategory,
@@ -16,6 +17,7 @@ from backend.domain.models import (
 )
 from backend.infrastructure.postgres.orm_models import (
     CommitmentRow,
+    HelpPointAffectedAreaRow,
     HelpPointLocationRow,
     HelpPointRow,
     NeedCategoryRow,
@@ -33,7 +35,7 @@ class PostgresHelpPointRepository:
                 row = self._row_from_point(point)
                 session.add(row)
                 session.flush()
-                return replace(point, updated_at=row.updated_at)
+                return replace(point, created_at=row.created_at, updated_at=row.updated_at)
 
     def update_help_point(self, point: HelpPoint) -> HelpPoint:
         with self._session_factory() as session:
@@ -73,6 +75,23 @@ class PostgresHelpPointRepository:
                                 departamento=location.department,
                                 latitude=location.latitude,
                                 longitude=location.longitude,
+                            )
+                        )
+                existing_areas = {
+                    (area.departamento, area.municipio): area for area in row.affected_areas
+                }
+                desired_areas = {
+                    (area.department, area.city): area for area in point.affected_areas
+                }
+                for area_key, area_row in existing_areas.items():
+                    if area_key not in desired_areas:
+                        session.delete(area_row)
+                for area_key in desired_areas:
+                    if area_key not in existing_areas:
+                        department, city = area_key
+                        row.affected_areas.append(
+                            HelpPointAffectedAreaRow(
+                                id=uuid4(), departamento=department, municipio=city
                             )
                         )
                 session.flush()
@@ -158,14 +177,16 @@ class PostgresHelpPointRepository:
             )
             for location in point.locations
         ]
+        row.affected_areas = [
+            HelpPointAffectedAreaRow(id=uuid4(), departamento=area.department, municipio=area.city)
+            for area in point.affected_areas
+        ]
         return row
 
     @staticmethod
     def _apply_point(row: HelpPointRow, point: HelpPoint) -> None:
         row.nombre = point.name
         row.descripcion = point.description
-        row.ciudad_afectada = point.affected_city
-        row.departamento_afectado = point.affected_department
         row.zonas_adicionales = point.additional_affected_areas
         row.enlaces_importantes = list(point.important_links)
         row.categoria = point.category.value
@@ -180,8 +201,10 @@ class PostgresHelpPointRepository:
             id=row.id,
             name=row.nombre,
             description=row.descripcion,
-            affected_city=row.ciudad_afectada,
-            affected_department=row.departamento_afectado,
+            affected_areas=tuple(
+                AffectedArea(department=area.departamento, city=area.municipio)
+                for area in row.affected_areas
+            ),
             additional_affected_areas=row.zonas_adicionales,
             important_links=tuple(row.enlaces_importantes),
             category=HelpPointCategory(row.categoria),
@@ -189,6 +212,7 @@ class PostgresHelpPointRepository:
             coordinator_contact=row.contacto_coordinador,
             admin_token=row.admin_token,
             active=row.activo,
+            created_at=row.created_at,
             updated_at=row.updated_at,
             locations=tuple(
                 HelpPointLocation(

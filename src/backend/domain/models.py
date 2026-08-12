@@ -56,11 +56,16 @@ class NewHelpPointLocation:
 
 
 @dataclass(frozen=True, slots=True)
+class AffectedArea:
+    department: str
+    city: str | None
+
+
+@dataclass(frozen=True, slots=True)
 class CreateHelpPoint:
     name: str
     description: str
-    affected_city: str | None
-    affected_department: str
+    affected_areas: tuple[AffectedArea, ...]
     locations: tuple[NewHelpPointLocation, ...]
     coordinator_name: str
     coordinator_contact: str
@@ -73,19 +78,27 @@ class CreateHelpPoint:
         for value, field, maximum in (
             (self.name, "name", 120),
             (self.description, "description", 5_000),
-            (self.affected_department, "affected_department", 120),
             (self.coordinator_name, "coordinator_name", 120),
             (self.coordinator_contact, "coordinator_contact", 240),
         ):
             validate_required(value, field, maximum)
-        validate_optional(self.affected_city, "affected_city", 120)
         validate_optional(self.additional_affected_areas, "additional_affected_areas", 500)
+        if not self.affected_areas:
+            raise ValueError("at least one affected area is required")
+        for area in self.affected_areas:
+            validate_required(area.department, "affected_department", 120)
+            validate_optional(area.city, "affected_city", 120)
+        pairs = tuple((area.department, area.city) for area in self.affected_areas)
+        if len(set(pairs)) != len(pairs):
+            raise ValueError("affected areas must be unique")
         for link in self.important_links:
             stripped = link.strip()
             if not stripped.startswith(("http://", "https://")):
                 raise ValueError("important_links must start with http:// or https://")
             if not 1 <= len(stripped) <= 500:
                 raise ValueError("important_links must be between 1 and 500 characters")
+        if not self.important_links:
+            raise ValueError("at least one important link is required")
         if not self.locations:
             raise ValueError("at least one location is required")
         for location in self.locations:
@@ -128,8 +141,7 @@ class HelpPoint:
     id: UUID
     name: str
     description: str
-    affected_city: str | None
-    affected_department: str
+    affected_areas: tuple[AffectedArea, ...]
     locations: tuple[HelpPointLocation, ...]
     coordinator_name: str
     coordinator_contact: str
@@ -137,6 +149,7 @@ class HelpPoint:
     active: bool
     needs: tuple[Need, ...]
     category: HelpPointCategory
+    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     additional_affected_areas: str | None = None
     important_links: tuple[str, ...] = ()
@@ -147,14 +160,14 @@ class PublicHelpPoint:
     id: UUID
     name: str
     description: str
-    affected_city: str | None
-    affected_department: str
+    affected_areas: tuple[AffectedArea, ...]
     locations: tuple[HelpPointLocation, ...]
     coordinator_name: str
     coordinator_contact: str
     active: bool
     needs: tuple[Need, ...]
     category: HelpPointCategory
+    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     additional_affected_areas: str | None = None
     important_links: tuple[str, ...] = ()

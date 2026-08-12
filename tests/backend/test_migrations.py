@@ -24,6 +24,9 @@ OPTIONAL_AFFECTED_CITY_MIGRATION = (
 IMPORTANT_LINKS_MIGRATION = ALEMBIC_ROOT / "versions/0006_help_point_important_links.py"
 CATEGORY_MIGRATION = ALEMBIC_ROOT / "versions/0007_help_point_category.py"
 MULTIPLE_LOCATIONS_MIGRATION = ALEMBIC_ROOT / "versions/0008_help_point_multiple_locations.py"
+MULTIPLE_AFFECTED_AREAS_MIGRATION = (
+    ALEMBIC_ROOT / "versions/0009_help_point_multiple_affected_areas.py"
+)
 EXPECTED_TABLES = {"help_points", "need_categories", "needs", "commitments"}
 
 
@@ -105,6 +108,18 @@ def load_category_migration():
 def load_multiple_locations_migration():
     specification = importlib.util.spec_from_file_location(
         "help_point_multiple_locations_migration", MULTIPLE_LOCATIONS_MIGRATION
+    )
+    assert specification is not None
+    assert specification.loader is not None
+    module = importlib.util.module_from_spec(specification)
+    specification.loader.exec_module(module)
+    return module
+
+
+def load_multiple_affected_areas_migration():
+    specification = importlib.util.spec_from_file_location(
+        "help_point_multiple_affected_areas_migration",
+        MULTIPLE_AFFECTED_AREAS_MIGRATION,
     )
     assert specification is not None
     assert specification.loader is not None
@@ -411,7 +426,7 @@ class MigrationTests(unittest.TestCase):
 
         self.assertEqual(result.returncode, 0, result.stderr)
         heads = [line.split()[0] for line in result.stdout.splitlines() if line.strip()]
-        self.assertEqual(heads, ["0008_help_point_multiple_locations"])
+        self.assertEqual(heads, ["0009_help_point_multiple_affected_areas"])
 
     def test_optional_affected_city_migration_follows_widen_revision_without_new_tables(
         self,
@@ -652,6 +667,80 @@ class MigrationTests(unittest.TestCase):
         self.assertEqual(
             operations.drop_table.call_args_list,
             [call("help_point_locations")],
+        )
+
+    def test_multiple_affected_areas_migration_follows_multiple_locations_revision(
+        self,
+    ) -> None:
+        self.assertTrue(MULTIPLE_AFFECTED_AREAS_MIGRATION.is_file())
+        migration = load_multiple_affected_areas_migration()
+
+        self.assertEqual(migration.revision, "0009_help_point_multiple_affected_areas")
+        self.assertEqual(migration.down_revision, "0008_help_point_multiple_locations")
+
+    def test_multiple_affected_areas_migration_creates_table_backfills_and_drops_columns(
+        self,
+    ) -> None:
+        migration = load_multiple_affected_areas_migration()
+
+        with patch.object(migration, "op") as operations:
+            migration.upgrade()
+
+        [create_call] = operations.create_table.call_args_list
+        self.assertEqual(create_call.args[0], "help_point_affected_areas")
+        columns = {arg.name for arg in create_call.args[1:] if hasattr(arg, "type")}
+        self.assertEqual(
+            columns,
+            {"id", "help_point_id", "departamento", "municipio", "created_at"},
+        )
+        backfill_sql = " ".join(str(operations.execute.call_args_list[0].args[0]).split())
+        self.assertIn("INSERT INTO help_point_affected_areas", backfill_sql)
+        self.assertIn("gen_random_uuid()", backfill_sql)
+        self.assertIn("departamento_afectado, ciudad_afectada", backfill_sql)
+        self.assertIn("FROM help_points", backfill_sql)
+        dropped_constraints = {
+            item.args[0] for item in operations.drop_constraint.call_args_list
+        }
+        self.assertEqual(
+            dropped_constraints,
+            {
+                "help_points_departamento_afectado_check",
+                "help_points_ciudad_afectada_check",
+            },
+        )
+        dropped_columns = [item.args[1] for item in operations.drop_column.call_args_list]
+        self.assertEqual(dropped_columns, ["departamento_afectado", "ciudad_afectada"])
+
+    def test_multiple_affected_areas_migration_downgrade_recreates_columns_and_drops_table(
+        self,
+    ) -> None:
+        migration = load_multiple_affected_areas_migration()
+
+        with patch.object(migration, "op") as operations:
+            migration.downgrade()
+
+        added_columns = [item.args[1] for item in operations.add_column.call_args_list]
+        self.assertEqual(
+            [(column.name, column.nullable) for column in added_columns],
+            [("departamento_afectado", True), ("ciudad_afectada", True)],
+        )
+        self.assertEqual(
+            operations.alter_column.call_args_list,
+            [call("help_points", "departamento_afectado", nullable=False)],
+        )
+        constraint_names = {
+            item.args[0] for item in operations.create_check_constraint.call_args_list
+        }
+        self.assertEqual(
+            constraint_names,
+            {
+                "help_points_departamento_afectado_check",
+                "help_points_ciudad_afectada_check",
+            },
+        )
+        self.assertEqual(
+            operations.drop_table.call_args_list,
+            [call("help_point_affected_areas")],
         )
 
     def test_commitment_note_constraint_belongs_only_to_commitments(self) -> None:

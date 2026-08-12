@@ -5,6 +5,7 @@ import unittest
 from uuid import uuid4
 
 from backend.domain.models import (
+    AffectedArea,
     HelpPointCategory,
     HelpPointLocation,
     Need,
@@ -65,7 +66,15 @@ class HelpPointMapTests(unittest.TestCase):
         self.category_id = uuid4()
 
     def point(
-        self, *, active=True, name="Parque Central", affected_city="Roldanillo & norte"
+        self,
+        *,
+        active=True,
+        name="Parque Central",
+        affected_areas=(
+            AffectedArea(
+                department="Valle <afectado> Cauca", city="Roldanillo & norte"
+            ),
+        ),
     ) -> PublicHelpPoint:
         return PublicHelpPoint(category=HelpPointCategory.RESCUE_OPERATIONS,
             id=uuid4(),
@@ -81,8 +90,7 @@ class HelpPointMapTests(unittest.TestCase):
                     longitude=-76.5320,
                 ),
             ),
-            affected_city=affected_city,
-            affected_department="Valle <afectado> Cauca",
+            affected_areas=affected_areas,
             coordinator_name="Ana",
             coordinator_contact="Contacto",
             active=active,
@@ -96,12 +104,30 @@ class HelpPointMapTests(unittest.TestCase):
         )
 
     def test_popup_shows_whole_department_when_affected_city_is_none(self) -> None:
-        point = self.point(affected_city=None)
+        point = self.point(
+            affected_areas=(
+                AffectedArea(department="Valle <afectado> Cauca", city=None),
+            )
+        )
 
         popup = help_point_map.build_popup_html(point, {}, point.locations[0])
 
         self.assertIn("Todo el departamento de Valle &lt;afectado&gt; Cauca", popup)
         self.assertNotIn("None", popup)
+
+    def test_popup_lists_multiple_departments_and_groups_their_cities(self) -> None:
+        point = self.point(
+            affected_areas=(
+                AffectedArea(department="Chocó", city="Quibdó"),
+                AffectedArea(department="Chocó", city="Istmina"),
+                AffectedArea(department="Caldas", city=None),
+            )
+        )
+
+        popup = help_point_map.build_popup_html(point, {}, point.locations[0])
+
+        self.assertIn("Quibdó, Istmina, Chocó", popup)
+        self.assertIn("Todo el departamento de Caldas", popup)
 
     def test_popup_escapes_all_dynamic_text_and_links_to_public_detail(self) -> None:
         point = self.point(name='<script>alert("x")</script>')

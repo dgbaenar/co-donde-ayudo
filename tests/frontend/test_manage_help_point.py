@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 from uuid import uuid4
 
 from backend.domain.models import (
+    AffectedArea,
     Commitment,
     HelpPoint,
     HelpPointCategory,
@@ -114,8 +115,9 @@ class ManageHelpPointTests(unittest.TestCase):
                     longitude=-76.5320,
                 ),
             ),
-            affected_city="Roldanillo",
-            affected_department="Valle del Cauca",
+            affected_areas=(
+                AffectedArea(department="Valle del Cauca", city="Roldanillo"),
+            ),
             coordinator_name="Ana",
             coordinator_contact="Contacto local",
             admin_token=self.token,
@@ -308,8 +310,9 @@ class ManageHelpPointInfoEditingTests(unittest.TestCase):
                     longitude=-76.5320,
                 ),
             ),
-            affected_city="Roldanillo",
-            affected_department="Valle del Cauca",
+            affected_areas=(
+                AffectedArea(department="Valle del Cauca", city="Roldanillo"),
+            ),
             coordinator_name="Ana",
             coordinator_contact="Contacto local",
             admin_token=self.token,
@@ -410,8 +413,7 @@ class ManageHelpPointInfoEditingTests(unittest.TestCase):
             name=self.point.name,
             description=self.point.description,
             locations=self.point.locations,
-            affected_city=self.point.affected_city,
-            affected_department=self.point.affected_department,
+            affected_areas=self.point.affected_areas,
             coordinator_name=self.point.coordinator_name,
             coordinator_contact=self.point.coordinator_contact,
             admin_token=self.point.admin_token,
@@ -520,8 +522,9 @@ class ManageHelpPointLinksEditingTests(unittest.TestCase):
                     longitude=-76.5320,
                 ),
             ),
-            affected_city="Roldanillo",
-            affected_department="Valle del Cauca",
+            affected_areas=(
+                AffectedArea(department="Valle del Cauca", city="Roldanillo"),
+            ),
             coordinator_name="Ana",
             coordinator_contact="Contacto local",
             admin_token=self.token,
@@ -681,8 +684,9 @@ class ManageHelpPointResponsivePresentationTests(unittest.TestCase):
                     longitude=-76.0,
                 ),
             ),
-            affected_city="Roldanillo",
-            affected_department="Valle del Cauca",
+            affected_areas=(
+                AffectedArea(department="Valle del Cauca", city="Roldanillo"),
+            ),
             coordinator_name="Ana",
             coordinator_contact="Contacto",
             admin_token="private-token",
@@ -739,7 +743,7 @@ class ManageHelpPointResponsivePresentationTests(unittest.TestCase):
 
     def test_renders_named_sections_action_palette_complete_statuses_and_menus(self) -> None:
         category_id, need_id = uuid4(), uuid4()
-        point = HelpPoint(id=uuid4(), name="Parque", description="Apoyo", locations=(HelpPointLocation(id=uuid4(), address="Calle 5 # 10-20", city="Cali", department="Valle", latitude=3.0, longitude=-76.0),), affected_city="Roldanillo", affected_department="Valle del Cauca", coordinator_name="Ana", coordinator_contact="Contacto", admin_token="private-token", active=True, needs=(Need(id=need_id, category_id=category_id, status=NeedStatus.NEEDS_HELP),), category=HelpPointCategory.DONATION_COLLECTION)
+        point = HelpPoint(id=uuid4(), name="Parque", description="Apoyo", locations=(HelpPointLocation(id=uuid4(), address="Calle 5 # 10-20", city="Cali", department="Valle", latitude=3.0, longitude=-76.0),), affected_areas=(AffectedArea(department="Valle del Cauca", city="Roldanillo"),), coordinator_name="Ana", coordinator_contact="Contacto", admin_token="private-token", active=True, needs=(Need(id=need_id, category_id=category_id, status=NeedStatus.NEEDS_HELP),), category=HelpPointCategory.DONATION_COLLECTION)
         calls, fake_ui = [], RecordingUi()
         original_ui = manage_help_point.ui
         manage_help_point.ui = fake_ui
@@ -833,7 +837,7 @@ class ManageHelpPointResponsivePresentationTests(unittest.TestCase):
     def test_remove_and_deactivate_require_explicit_confirmation_without_token_copy(self) -> None:
         category_id, need_id = uuid4(), uuid4()
         token = "synthetic-private-token"
-        point = HelpPoint(id=uuid4(), name="Parque", description="Apoyo", locations=(HelpPointLocation(id=uuid4(), address="Calle 5", city="Cali", department="Valle", latitude=3.0, longitude=-76.0),), affected_city="Roldanillo", affected_department="Valle del Cauca", coordinator_name="Ana", coordinator_contact="Contacto", admin_token=token, active=True, needs=(Need(id=need_id, category_id=category_id, status=NeedStatus.NEEDS_HELP),), category=HelpPointCategory.DONATION_COLLECTION)
+        point = HelpPoint(id=uuid4(), name="Parque", description="Apoyo", locations=(HelpPointLocation(id=uuid4(), address="Calle 5", city="Cali", department="Valle", latitude=3.0, longitude=-76.0),), affected_areas=(AffectedArea(department="Valle del Cauca", city="Roldanillo"),), coordinator_name="Ana", coordinator_contact="Contacto", admin_token=token, active=True, needs=(Need(id=need_id, category_id=category_id, status=NeedStatus.NEEDS_HELP),), category=HelpPointCategory.DONATION_COLLECTION)
         remove_calls, deactivate_calls = [], []
         fake_ui = RecordingUi()
         original_ui = manage_help_point.ui
@@ -949,7 +953,7 @@ class ManageHelpPointResponsivePresentationTests(unittest.TestCase):
 
     def test_handler_error_notification_is_generic_and_omits_token(self) -> None:
         token = "synthetic-private-token"
-        point = HelpPoint(id=uuid4(), name="Parque", description="Apoyo", locations=(HelpPointLocation(id=uuid4(), address="Calle 5", city="Cali", department="Valle", latitude=3.0, longitude=-76.0),), affected_city="Roldanillo", affected_department="Valle del Cauca", coordinator_name="Ana", coordinator_contact="Contacto", admin_token=token, active=True, needs=(), category=HelpPointCategory.DONATION_COLLECTION)
+        point = HelpPoint(id=uuid4(), name="Parque", description="Apoyo", locations=(HelpPointLocation(id=uuid4(), address="Calle 5", city="Cali", department="Valle", latitude=3.0, longitude=-76.0),), affected_areas=(AffectedArea(department="Valle del Cauca", city="Roldanillo"),), coordinator_name="Ana", coordinator_contact="Contacto", admin_token=token, active=True, needs=(), category=HelpPointCategory.DONATION_COLLECTION)
         fake_ui = RecordingUi()
         original_ui = manage_help_point.ui
         manage_help_point.ui = fake_ui
@@ -991,7 +995,7 @@ class ManageHelpPointResponsivePresentationTests(unittest.TestCase):
 
     def test_unexpected_handler_error_is_generic_and_does_not_propagate(self) -> None:
         token = "synthetic-private-token"
-        point = HelpPoint(id=uuid4(), name="Parque", description="Apoyo", locations=(HelpPointLocation(id=uuid4(), address="Calle 5", city="Cali", department="Valle", latitude=3.0, longitude=-76.0),), affected_city="Roldanillo", affected_department="Valle del Cauca", coordinator_name="Ana", coordinator_contact="Contacto", admin_token=token, active=True, needs=(), category=HelpPointCategory.DONATION_COLLECTION)
+        point = HelpPoint(id=uuid4(), name="Parque", description="Apoyo", locations=(HelpPointLocation(id=uuid4(), address="Calle 5", city="Cali", department="Valle", latitude=3.0, longitude=-76.0),), affected_areas=(AffectedArea(department="Valle del Cauca", city="Roldanillo"),), coordinator_name="Ana", coordinator_contact="Contacto", admin_token=token, active=True, needs=(), category=HelpPointCategory.DONATION_COLLECTION)
         caught_errors = []
         fake_ui = RecordingUi()
         original_ui = manage_help_point.ui
@@ -1100,8 +1104,9 @@ class ManageHelpPointCommitmentsTests(unittest.TestCase):
                     longitude=-76.0,
                 ),
             ),
-            affected_city="Roldanillo",
-            affected_department="Valle del Cauca",
+            affected_areas=(
+                AffectedArea(department="Valle del Cauca", city="Roldanillo"),
+            ),
             coordinator_name="Ana",
             coordinator_contact="Contacto",
             admin_token="private-token",
@@ -1139,8 +1144,9 @@ class ManageHelpPointCommitmentsTests(unittest.TestCase):
                     longitude=-76.0,
                 ),
             ),
-            affected_city="Roldanillo",
-            affected_department="Valle del Cauca",
+            affected_areas=(
+                AffectedArea(department="Valle del Cauca", city="Roldanillo"),
+            ),
             coordinator_name="Ana",
             coordinator_contact="Contacto",
             admin_token="private-token",

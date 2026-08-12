@@ -8,6 +8,7 @@ from uuid import uuid4
 from backend.application.services import HelpPointService
 from backend.domain.emergency_scope import AFFECTED_DEPARTMENTS, list_affected_departments
 from backend.domain.models import (
+    AffectedArea,
     Commitment,
     CreateHelpPoint,
     HelpPointCategory,
@@ -95,6 +96,7 @@ class FakeLocationCatalog:
         self.localities = {
             "Antioquia": ("Medellín",),
             "Valle del Cauca": ("Cali", "Roldanillo"),
+            "Caldas": ("Manizales",),
         }
         self.queried_departments: list[str] = []
 
@@ -114,8 +116,9 @@ class HelpPointServiceTests(unittest.TestCase):
         values = {
             "name": "Parque Central",
             "description": "Familias evacuadas reciben apoyo.",
-            "affected_city": "Roldanillo",
-            "affected_department": "Valle del Cauca",
+            "affected_areas": (
+                AffectedArea(department="Valle del Cauca", city="Roldanillo"),
+            ),
             "locations": (
                 NewHelpPointLocation(
                     address="Calle 5 # 10-20",
@@ -129,6 +132,7 @@ class HelpPointServiceTests(unittest.TestCase):
             "coordinator_contact": "Contacto local",
             "category_ids": self.categories,
             "category": HelpPointCategory.DONATION_COLLECTION,
+            "important_links": ("https://example.com/ayuda",),
         }
         values.update(changes)
         return CreateHelpPoint(**values)
@@ -151,9 +155,9 @@ class HelpPointServiceTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "additional_affected_areas"):
             self.command(additional_affected_areas="a" * 501)
 
-    def test_create_command_accepts_missing_or_valid_important_links(self) -> None:
-        without_links = self.command()
-        self.assertEqual(without_links.important_links, ())
+    def test_create_command_accepts_one_or_several_valid_important_links(self) -> None:
+        with_one_link = self.command()
+        self.assertEqual(with_one_link.important_links, ("https://example.com/ayuda",))
 
         with_links = self.command(
             important_links=("https://example.com/ayuda", "http://otro.example.co")
@@ -162,6 +166,10 @@ class HelpPointServiceTests(unittest.TestCase):
             with_links.important_links,
             ("https://example.com/ayuda", "http://otro.example.co"),
         )
+
+    def test_create_command_rejects_missing_important_links(self) -> None:
+        with self.assertRaisesRegex(ValueError, "important link"):
+            self.command(important_links=())
 
     def test_create_command_rejects_important_link_with_disallowed_scheme(self) -> None:
         with self.assertRaisesRegex(ValueError, "important_links"):
@@ -177,10 +185,33 @@ class HelpPointServiceTests(unittest.TestCase):
             self.command(important_links=(overly_long,))
 
     def test_create_command_rejects_empty_affected_location_fields(self) -> None:
-        for field in ("affected_city", "affected_department"):
-            with self.subTest(field=field):
-                with self.assertRaisesRegex(ValueError, field):
-                    self.command(**{field: "   "})
+        with self.assertRaisesRegex(ValueError, "affected_city"):
+            self.command(affected_areas=(AffectedArea(department="Valle del Cauca", city="   "),))
+        with self.assertRaisesRegex(ValueError, "affected_department"):
+            self.command(affected_areas=(AffectedArea(department="   ", city="Roldanillo"),))
+
+    def test_create_command_rejects_empty_affected_areas(self) -> None:
+        with self.assertRaisesRegex(ValueError, "at least one affected area"):
+            self.command(affected_areas=())
+
+    def test_create_command_rejects_duplicate_affected_areas(self) -> None:
+        with self.assertRaisesRegex(ValueError, "affected areas must be unique"):
+            self.command(
+                affected_areas=(
+                    AffectedArea(department="Valle del Cauca", city="Roldanillo"),
+                    AffectedArea(department="Valle del Cauca", city="Roldanillo"),
+                )
+            )
+
+    def test_create_command_accepts_repeated_department_with_different_cities(self) -> None:
+        command = self.command(
+            affected_areas=(
+                AffectedArea(department="Valle del Cauca", city="Roldanillo"),
+                AffectedArea(department="Valle del Cauca", city="Cali"),
+            )
+        )
+
+        self.assertEqual(len(command.affected_areas), 2)
 
     def test_create_command_rejects_empty_physical_location_fields(self) -> None:
         for field in ("address", "city", "department"):
@@ -199,25 +230,43 @@ class HelpPointServiceTests(unittest.TestCase):
                     self.command(locations=(location,))
 
     def test_create_command_accepts_missing_affected_city(self) -> None:
-        command = self.command(affected_city=None)
+        command = self.command(
+            affected_areas=(AffectedArea(department="Valle del Cauca", city=None),)
+        )
 
-        self.assertIsNone(command.affected_city)
+        self.assertIsNone(command.affected_areas[0].city)
 
     def test_create_command_rejects_blank_affected_city(self) -> None:
         with self.assertRaisesRegex(ValueError, "affected_city"):
-            self.command(affected_city="   ")
+            self.command(
+                affected_areas=(AffectedArea(department="Valle del Cauca", city="   "),)
+            )
 
     def test_create_rejects_destination_outside_active_scope(self) -> None:
         invalid = self.command(
-            affected_department="Antioquia",
-            affected_city="Medellín",
+            affected_areas=(AffectedArea(department="Antioquia", city="Medellín"),)
         )
 
         with self.assertRaisesRegex(ValueError, "affected department"):
             self.service.create_help_point(invalid)
 
-    def test_create_rejects_municipality_outside_selected_department(self) -> None:
-        invalid_affected = self.command(affected_city="Medellín")
+    def test_create_rejects_when_any_selected_area_department_is_outside_active_scope(
+        self,
+    ) -> None:
+        invalid = self.command(
+            affected_areas=(
+                AffectedArea(department="Valle del Cauca", city="Roldanillo"),
+                AffectedArea(department="Antioquia", city="Medellín"),
+            )
+        )
+
+        with self.assertRaisesRegex(ValueError, "affected department"):
+            self.service.create_help_point(invalid)
+
+    def test_create_rejects_municipality_outside_its_own_areas_department(self) -> None:
+        invalid_affected = self.command(
+            affected_areas=(AffectedArea(department="Valle del Cauca", city="Medellín"),)
+        )
         invalid_physical = self.command(
             locations=(
                 NewHelpPointLocation(
@@ -236,17 +285,78 @@ class HelpPointServiceTests(unittest.TestCase):
             self.service.create_help_point(invalid_physical)
 
     def test_create_accepts_missing_affected_city_without_membership_validation(self) -> None:
-        created = self.service.create_help_point(self.command(affected_city=None)).point
+        created = self.service.create_help_point(
+            self.command(
+                affected_areas=(AffectedArea(department="Valle del Cauca", city=None),)
+            )
+        ).point
 
-        self.assertIsNone(created.affected_city)
-        self.assertEqual(created.affected_department, "Valle del Cauca")
+        self.assertIsNone(created.affected_areas[0].city)
+        self.assertEqual(created.affected_areas[0].department, "Valle del Cauca")
         # "Valle del Cauca" is queried once for the physical city/department check; the
-        # affected-city membership check must be skipped entirely when affected_city is None,
-        # even though city == affected_department in this fixture.
+        # affected-city membership check must be skipped entirely when the area's city is
+        # None, even though city == department in this fixture.
         self.assertEqual(
             self.location_catalog.queried_departments.count("Valle del Cauca"),
             1,
         )
+
+    def test_create_persists_multiple_affected_areas(self) -> None:
+        created = self.service.create_help_point(
+            self.command(
+                affected_areas=(
+                    AffectedArea(department="Caldas", city="Manizales"),
+                    AffectedArea(department="Valle del Cauca", city="Roldanillo"),
+                )
+            )
+        ).point
+
+        expected = (
+            AffectedArea(department="Caldas", city="Manizales"),
+            AffectedArea(department="Valle del Cauca", city="Roldanillo"),
+        )
+        self.assertEqual(created.affected_areas, expected)
+        self.assertEqual(self.repository.created.affected_areas, expected)
+
+    def test_create_persists_multiple_cities_for_the_same_department(self) -> None:
+        created = self.service.create_help_point(
+            self.command(
+                affected_areas=(
+                    AffectedArea(department="Valle del Cauca", city="Cali"),
+                    AffectedArea(department="Valle del Cauca", city="Roldanillo"),
+                )
+            )
+        ).point
+
+        self.assertEqual(
+            created.affected_areas,
+            (
+                AffectedArea(department="Valle del Cauca", city="Cali"),
+                AffectedArea(department="Valle del Cauca", city="Roldanillo"),
+            ),
+        )
+
+    def test_create_accepts_whole_department_area_with_no_city(self) -> None:
+        created = self.service.create_help_point(
+            self.command(
+                affected_areas=(AffectedArea(department="Caldas", city=None),)
+            )
+        ).point
+
+        self.assertEqual(created.affected_areas, (AffectedArea(department="Caldas", city=None),))
+
+    def test_create_rejects_affected_city_not_belonging_to_its_own_area_department(
+        self,
+    ) -> None:
+        invalid = self.command(
+            affected_areas=(
+                AffectedArea(department="Caldas", city="Roldanillo"),
+                AffectedArea(department="Valle del Cauca", city="Roldanillo"),
+            )
+        )
+
+        with self.assertRaisesRegex(ValueError, "affected city"):
+            self.service.create_help_point(invalid)
 
     def test_create_keeps_physical_and_affected_locations_separate(self) -> None:
         created = self.service.create_help_point(self.command()).point
@@ -257,8 +367,8 @@ class HelpPointServiceTests(unittest.TestCase):
         )
         self.assertEqual(created.locations[0].address, "Calle 5 # 10-20")
         self.assertEqual(
-            (created.affected_city, created.affected_department),
-            ("Roldanillo", "Valle del Cauca"),
+            created.affected_areas,
+            (AffectedArea(department="Valle del Cauca", city="Roldanillo"),),
         )
 
     def test_public_view_exposes_physical_and_affected_locations(self) -> None:
@@ -269,8 +379,10 @@ class HelpPointServiceTests(unittest.TestCase):
         self.assertEqual(public.locations[0].address, "Calle 5 # 10-20")
         self.assertEqual(public.locations[0].city, "Cali")
         self.assertEqual(public.locations[0].department, "Valle del Cauca")
-        self.assertEqual(public.affected_city, "Roldanillo")
-        self.assertEqual(public.affected_department, "Valle del Cauca")
+        self.assertEqual(
+            public.affected_areas,
+            (AffectedArea(department="Valle del Cauca", city="Roldanillo"),),
+        )
 
     def test_create_propagates_important_links_to_persisted_point(self) -> None:
         created = self.service.create_help_point(
@@ -281,6 +393,14 @@ class HelpPointServiceTests(unittest.TestCase):
         self.assertEqual(
             self.repository.created.important_links, ("https://example.com/ayuda",)
         )
+
+    def test_to_public_exposes_created_at(self) -> None:
+        created = self.service.create_help_point(self.command()).point
+        self.repository.created = created
+
+        public = self.service.to_public(created)
+
+        self.assertEqual(public.created_at, created.created_at)
 
     def test_to_public_exposes_important_links(self) -> None:
         point = self.service.create_help_point(

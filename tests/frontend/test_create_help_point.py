@@ -11,6 +11,7 @@ from unittest.mock import patch
 from uuid import UUID, uuid4
 
 from backend.domain.models import (
+    AffectedArea,
     CreatedHelpPoint,
     HelpPoint,
     HelpPointCategory,
@@ -19,11 +20,14 @@ from backend.domain.models import (
 from frontend.app import create_app
 from frontend.pages import create_help_point
 from frontend.pages.create_help_point import (
+    AffectedAreaValues,
     FormValues,
     LocationValues,
     build_command,
     publish_help_point,
 )
+
+_DEFAULT_TEST_LINK = "https://example.com/enlace-general"
 
 
 class RecordingElement:
@@ -100,8 +104,7 @@ class RecordingHandler:
             id=uuid4(),
             name=command.name,
             description=command.description,
-            affected_city=command.affected_city,
-            affected_department=command.affected_department,
+            affected_areas=command.affected_areas,
             locations=tuple(
                 HelpPointLocation(
                     id=uuid4(),
@@ -127,11 +130,13 @@ class CreateHelpPointTests(unittest.TestCase):
         self.water_id = uuid4()
         self.blanket_id = uuid4()
         self.categories = {"Agua": self.water_id, "Cobijas": self.blanket_id}
+        self.important_links = (_DEFAULT_TEST_LINK,)
         self.values = FormValues(
             name=" Parque Central ",
             description=" Familias evacuadas reciben apoyo. ",
-            affected_city=" Roldanillo ",
-            affected_department=" Valle del Cauca ",
+            affected_areas=(
+                AffectedAreaValues(department=" Valle del Cauca ", city=" Roldanillo "),
+            ),
             locations=(
                 LocationValues(
                     address=" Calle 5 # 10-20 ",
@@ -147,12 +152,16 @@ class CreateHelpPointTests(unittest.TestCase):
         )
 
     def test_build_command_uses_all_form_values_and_selected_categories(self) -> None:
-        command = build_command(self.values, ("Agua", "Cobijas"), self.categories)
+        command = build_command(
+            self.values, ("Agua", "Cobijas"), self.categories, self.important_links
+        )
 
         self.assertEqual(command.name, "Parque Central")
         self.assertEqual(command.description, "Familias evacuadas reciben apoyo.")
-        self.assertEqual(command.affected_city, "Roldanillo")
-        self.assertEqual(command.affected_department, "Valle del Cauca")
+        self.assertEqual(
+            command.affected_areas,
+            (AffectedArea(department="Valle del Cauca", city="Roldanillo"),),
+        )
         self.assertEqual(len(command.locations), 1)
         self.assertEqual(command.locations[0].city, "Cali")
         self.assertEqual(command.locations[0].department, "Valle del Cauca")
@@ -168,8 +177,7 @@ class CreateHelpPointTests(unittest.TestCase):
         values = FormValues(
             name=self.values.name,
             description=self.values.description,
-            affected_city=self.values.affected_city,
-            affected_department=self.values.affected_department,
+            affected_areas=self.values.affected_areas,
             locations=self.values.locations,
             coordinator_name=self.values.coordinator_name,
             coordinator_contact=self.values.coordinator_contact,
@@ -179,42 +187,92 @@ class CreateHelpPointTests(unittest.TestCase):
         with self.assertRaisesRegex(
             ValueError, "Completa todos los campos obligatorios antes de publicar."
         ):
-            build_command(values, ("Agua",), self.categories)
+            build_command(values, ("Agua",), self.categories, self.important_links)
 
-    def test_build_command_converts_blank_affected_city_to_none(self) -> None:
+    def test_build_command_converts_blank_area_city_to_none(self) -> None:
         values = FormValues(
             name=self.values.name,
             description=self.values.description,
-            affected_city="",
-            affected_department=self.values.affected_department,
+            affected_areas=(
+                AffectedAreaValues(department="Valle del Cauca", city=""),
+            ),
             locations=self.values.locations,
             coordinator_name=self.values.coordinator_name,
             coordinator_contact=self.values.coordinator_contact,
             category="Recolección de donaciones",
         )
 
-        command = build_command(values, ("Agua",), self.categories)
+        command = build_command(values, ("Agua",), self.categories, self.important_links)
 
-        self.assertIsNone(command.affected_city)
+        self.assertIsNone(command.affected_areas[0].city)
 
-    def test_build_command_converts_whitespace_only_affected_city_to_none(self) -> None:
+    def test_build_command_converts_whitespace_only_area_city_to_none(self) -> None:
         values = FormValues(
             name=self.values.name,
             description=self.values.description,
-            affected_city="   ",
-            affected_department=self.values.affected_department,
+            affected_areas=(
+                AffectedAreaValues(department="Valle del Cauca", city="   "),
+            ),
             locations=self.values.locations,
             coordinator_name=self.values.coordinator_name,
             coordinator_contact=self.values.coordinator_contact,
             category="Recolección de donaciones",
         )
 
-        command = build_command(values, ("Agua",), self.categories)
+        command = build_command(values, ("Agua",), self.categories, self.important_links)
 
-        self.assertIsNone(command.affected_city)
+        self.assertIsNone(command.affected_areas[0].city)
+
+    def test_build_command_builds_multiple_affected_areas_across_departments(
+        self,
+    ) -> None:
+        values = FormValues(
+            name=self.values.name,
+            description=self.values.description,
+            affected_areas=(
+                AffectedAreaValues(department="Chocó", city="Quibdó"),
+                AffectedAreaValues(department="Chocó", city="Istmina"),
+                AffectedAreaValues(department="Caldas", city=""),
+            ),
+            locations=self.values.locations,
+            coordinator_name=self.values.coordinator_name,
+            coordinator_contact=self.values.coordinator_contact,
+            category="Recolección de donaciones",
+        )
+
+        command = build_command(values, ("Agua",), self.categories, self.important_links)
+
+        self.assertEqual(
+            command.affected_areas,
+            (
+                AffectedArea(department="Chocó", city="Quibdó"),
+                AffectedArea(department="Chocó", city="Istmina"),
+                AffectedArea(department="Caldas", city=None),
+            ),
+        )
+
+    def test_build_command_blocks_zero_affected_areas(self) -> None:
+        values = FormValues(
+            name=self.values.name,
+            description=self.values.description,
+            affected_areas=(),
+            locations=self.values.locations,
+            coordinator_name=self.values.coordinator_name,
+            coordinator_contact=self.values.coordinator_contact,
+            category="Recolección de donaciones",
+        )
+
+        with self.assertRaisesRegex(ValueError, "zona afectada"):
+            build_command(values, ("Agua",), self.categories, self.important_links)
+
+    def test_build_command_blocks_zero_important_links(self) -> None:
+        with self.assertRaisesRegex(
+            ValueError, "Completa todos los campos obligatorios antes de publicar."
+        ):
+            build_command(self.values, ("Agua",), self.categories, important_links=())
 
     def test_build_command_defaults_blank_additional_affected_areas_to_none(self) -> None:
-        command = build_command(self.values, ("Agua",), self.categories)
+        command = build_command(self.values, ("Agua",), self.categories, self.important_links)
 
         self.assertIsNone(command.additional_affected_areas)
 
@@ -224,8 +282,7 @@ class CreateHelpPointTests(unittest.TestCase):
         values = FormValues(
             name=self.values.name,
             description=self.values.description,
-            affected_city=self.values.affected_city,
-            affected_department=self.values.affected_department,
+            affected_areas=self.values.affected_areas,
             locations=self.values.locations,
             coordinator_name=self.values.coordinator_name,
             coordinator_contact=self.values.coordinator_contact,
@@ -233,7 +290,7 @@ class CreateHelpPointTests(unittest.TestCase):
             category="Recolección de donaciones",
         )
 
-        command = build_command(values, ("Agua",), self.categories)
+        command = build_command(values, ("Agua",), self.categories, self.important_links)
 
         self.assertIsNone(command.additional_affected_areas)
 
@@ -243,8 +300,7 @@ class CreateHelpPointTests(unittest.TestCase):
         values = FormValues(
             name=self.values.name,
             description=self.values.description,
-            affected_city=self.values.affected_city,
-            affected_department=self.values.affected_department,
+            affected_areas=self.values.affected_areas,
             locations=self.values.locations,
             coordinator_name=self.values.coordinator_name,
             coordinator_contact=self.values.coordinator_contact,
@@ -252,7 +308,7 @@ class CreateHelpPointTests(unittest.TestCase):
             category="Recolección de donaciones",
         )
 
-        command = build_command(values, ("Agua",), self.categories)
+        command = build_command(values, ("Agua",), self.categories, self.important_links)
 
         self.assertEqual(command.additional_affected_areas, "Roldanillo y Zarzal")
 
@@ -274,6 +330,7 @@ class CreateHelpPointTests(unittest.TestCase):
             self.categories,
             lambda _name: self.fail("no unknown category must not be created"),
             handler,
+            self.important_links,
         )
 
         self.assertEqual(handler.command.category_ids, (self.water_id,))
@@ -292,6 +349,7 @@ class CreateHelpPointTests(unittest.TestCase):
             self.categories,
             lambda name: created_names.append(name) or custom_category_id,
             handler,
+            self.important_links,
         )
 
         self.assertEqual(created_names, ["Alimento para mascotas"])
@@ -320,6 +378,7 @@ class CreateHelpPointTests(unittest.TestCase):
             self.categories,
             create_custom_category,
             handler,
+            self.important_links,
         )
 
         self.assertEqual(created_names, ["Alimento para mascotas", "Pañales"])
@@ -341,11 +400,6 @@ class CreateHelpPointTests(unittest.TestCase):
             command.important_links, ("https://example.com/donaciones",)
         )
 
-    def test_build_command_defaults_important_links_to_empty_tuple(self) -> None:
-        command = build_command(self.values, ("Agua",), self.categories)
-
-        self.assertEqual(command.important_links, ())
-
     def test_build_command_rejects_unknown_category_before_handler_invocation(self) -> None:
         with self.assertRaisesRegex(ValueError, "unknown category"):
             build_command(self.values, ("No existe",), self.categories)
@@ -354,8 +408,7 @@ class CreateHelpPointTests(unittest.TestCase):
         values = FormValues(
             name=self.values.name,
             description=self.values.description,
-            affected_city=self.values.affected_city,
-            affected_department=self.values.affected_department,
+            affected_areas=self.values.affected_areas,
             locations=(
                 LocationValues(
                     address=self.values.locations[0].address,
@@ -371,7 +424,7 @@ class CreateHelpPointTests(unittest.TestCase):
         )
 
         with self.assertRaises(ValueError) as raised:
-            build_command(values, ("Agua",), self.categories)
+            build_command(values, ("Agua",), self.categories, self.important_links)
 
         self.assertNotIn("city is required", str(raised.exception))
         self.assertNotIn("is required", str(raised.exception))
@@ -379,7 +432,9 @@ class CreateHelpPointTests(unittest.TestCase):
     def test_publish_without_map_location_rejects_before_any_handler(self) -> None:
         values = FormValues(
             name="Parque", description="Apoyo",
-            affected_city="Roldanillo", affected_department="Valle del Cauca",
+            affected_areas=(
+                AffectedAreaValues(department="Valle del Cauca", city="Roldanillo"),
+            ),
             locations=(
                 LocationValues(
                     address="Calle 5", city="Cali", department="Valle",
@@ -408,8 +463,7 @@ class CreateHelpPointTests(unittest.TestCase):
         values = FormValues(
             name=self.values.name,
             description=self.values.description,
-            affected_city=self.values.affected_city,
-            affected_department=self.values.affected_department,
+            affected_areas=self.values.affected_areas,
             locations=(
                 LocationValues(
                     address=" Calle 5 # 10-20 ",
@@ -431,7 +485,7 @@ class CreateHelpPointTests(unittest.TestCase):
             category="Recolección de donaciones",
         )
 
-        command = build_command(values, ("Agua",), self.categories)
+        command = build_command(values, ("Agua",), self.categories, self.important_links)
 
         self.assertEqual(len(command.locations), 2)
         self.assertEqual(command.locations[0].address, "Calle 5 # 10-20")
@@ -446,8 +500,7 @@ class CreateHelpPointTests(unittest.TestCase):
         values = FormValues(
             name=self.values.name,
             description=self.values.description,
-            affected_city=self.values.affected_city,
-            affected_department=self.values.affected_department,
+            affected_areas=self.values.affected_areas,
             locations=(),
             coordinator_name=self.values.coordinator_name,
             coordinator_contact=self.values.coordinator_contact,
@@ -455,7 +508,7 @@ class CreateHelpPointTests(unittest.TestCase):
         )
 
         with self.assertRaisesRegex(ValueError, "ubicación"):
-            build_command(values, ("Agua",), self.categories)
+            build_command(values, ("Agua",), self.categories, self.important_links)
 
 
 class FrontendBoundaryTests(unittest.TestCase):
@@ -561,6 +614,20 @@ class CreateHelpPointResponsivePresentationTests(unittest.TestCase):
                 element.value = select_values[label]
             elif label == "Necesidades" and need is not None:
                 element.value = [need]
+
+        link_input = next(
+            element
+            for element in fake_ui.elements
+            if element.kind == "input"
+            and element.args == ("Enlace importante (URL)",)
+        )
+        add_link_button = next(
+            element
+            for element in fake_ui.elements
+            if element.kind == "button" and element.args == ("Agregar enlace",)
+        )
+        link_input.value = _DEFAULT_TEST_LINK
+        add_link_button.kwargs["on_click"]()
 
     def test_renders_full_width_fields_and_touch_sized_publish_action(self) -> None:
         fake_ui = RecordingUi()
@@ -861,7 +928,7 @@ class CreateHelpPointResponsivePresentationTests(unittest.TestCase):
         self.assertEqual(len(create_calls), 1)
         self.assertIsNone(create_calls[0].additional_affected_areas)
 
-    def test_publish_sends_none_affected_city_when_left_unselected(self) -> None:
+    def test_publish_sends_none_area_city_when_left_unselected(self) -> None:
         fake_ui = RecordingUi()
         original_ui = create_help_point.ui
         create_help_point.ui = fake_ui
@@ -905,9 +972,9 @@ class CreateHelpPointResponsivePresentationTests(unittest.TestCase):
             create_help_point.ui = original_ui
 
         self.assertEqual(len(create_calls), 1)
-        self.assertIsNone(create_calls[0].affected_city)
+        self.assertIsNone(create_calls[0].affected_areas[0].city)
 
-    def test_publish_sends_selected_affected_city_when_chosen(self) -> None:
+    def test_publish_sends_selected_area_city_when_chosen(self) -> None:
         fake_ui = RecordingUi()
         original_ui = create_help_point.ui
         create_help_point.ui = fake_ui
@@ -943,7 +1010,7 @@ class CreateHelpPointResponsivePresentationTests(unittest.TestCase):
             create_help_point.ui = original_ui
 
         self.assertEqual(len(create_calls), 1)
-        self.assertEqual(create_calls[0].affected_city, "Roldanillo")
+        self.assertEqual(create_calls[0].affected_areas[0].city, "Roldanillo")
 
     def test_address_search_geocodes_physical_location_and_updates_picker(self) -> None:
         fake_ui = RecordingUi()
@@ -1227,8 +1294,11 @@ class CreateHelpPointResponsivePresentationTests(unittest.TestCase):
                     FormValues(
                         name="Parque Central",
                         description="Familias evacuadas reciben apoyo.",
-                        affected_city="Roldanillo",
-                        affected_department="Valle del Cauca",
+                        affected_areas=(
+                            AffectedAreaValues(
+                                department="Valle del Cauca", city="Roldanillo"
+                            ),
+                        ),
                         locations=(
                             LocationValues(
                                 address="Calle 5 # 10-20",
@@ -1244,6 +1314,7 @@ class CreateHelpPointResponsivePresentationTests(unittest.TestCase):
                     ),
                     ("Agua",),
                     {"Agua": category_id},
+                    (_DEFAULT_TEST_LINK,),
                 )
                 self.assertEqual(create_calls, [expected_command])
                 self.assertFalse(form_container.visible)
@@ -1928,7 +1999,7 @@ class CreateHelpPointResponsivePresentationTests(unittest.TestCase):
         self.assertEqual(len(create_calls), 1)
         self.assertEqual(
             create_calls[0].important_links,
-            ("https://example.com/donaciones",),
+            (_DEFAULT_TEST_LINK, "https://example.com/donaciones"),
         )
 
     def test_publish_with_removed_link_excludes_it_from_command(self) -> None:
@@ -1990,7 +2061,7 @@ class CreateHelpPointResponsivePresentationTests(unittest.TestCase):
             create_help_point.ui = original_ui
 
         self.assertEqual(len(create_calls), 1)
-        self.assertEqual(create_calls[0].important_links, ())
+        self.assertEqual(create_calls[0].important_links, (_DEFAULT_TEST_LINK,))
 
     def test_publish_with_invalid_important_link_shows_error_and_does_not_publish(
         self,
@@ -2146,11 +2217,14 @@ class CreateHelpPointResponsivePresentationTests(unittest.TestCase):
                 )
                 self.fill_valid_form(fake_ui, need="Agua")
 
-                remove_location = next(
+                # "Quitar" buttons appear in render order: the affected-area
+                # block first, then the location block, then any added link.
+                quitar_buttons = [
                     element
                     for element in fake_ui.elements
                     if element.kind == "button" and element.args == ("Quitar",)
-                )
+                ]
+                remove_location = quitar_buttons[1]
                 remove_location.kwargs["on_click"]()
 
                 publish = next(
@@ -2168,6 +2242,62 @@ class CreateHelpPointResponsivePresentationTests(unittest.TestCase):
             any(
                 element.kind == "notify"
                 and "ubicación" in element.args[0]
+                for element in fake_ui.elements
+            )
+        )
+
+    def test_removing_the_only_link_blocks_submission_with_generic_error(self) -> None:
+        fake_ui = RecordingUi()
+        original_ui = create_help_point.ui
+        create_help_point.ui = fake_ui
+        create_calls = []
+        category_id = uuid4()
+        try:
+            with patch.object(
+                create_help_point,
+                "render_location_picker",
+                return_value=SimpleNamespace(latitude=3.45, longitude=-76.53),
+            ):
+                create_help_point.render_create_help_point(
+                    {"Agua": category_id},
+                    lambda command: create_calls.append(command),
+                    lambda _name: self.fail("empty custom category must not be created"),
+                    lambda: ("Valle del Cauca",),
+                    self.list_localities,
+                    lambda: self.AFFECTED_DEPARTMENTS,
+                    lambda *_args: self.fail("geocoder must not run"),
+                    "https://dondeayudo.example",
+                )
+                self.fill_valid_form(fake_ui, need="Agua")
+
+                # "Quitar" buttons appear in render order: the affected-area
+                # block, then the location block, then the link added by
+                # fill_valid_form — remove that last one to leave zero links.
+                quitar_buttons = [
+                    element
+                    for element in fake_ui.elements
+                    if element.kind == "button" and element.args == ("Quitar",)
+                ]
+                quitar_buttons[-1].kwargs["on_click"]()
+
+                publish = next(
+                    element
+                    for element in fake_ui.elements
+                    if element.kind == "button"
+                    and element.args == ("Publicar punto de ayuda",)
+                )
+                publish.kwargs["on_click"]()
+        finally:
+            create_help_point.ui = original_ui
+
+        self.assertEqual(create_calls, [])
+        self.assertTrue(
+            any(
+                element.kind == "notify"
+                and element.args
+                == (
+                    "Completa todos los campos obligatorios antes de publicar.",
+                )
                 for element in fake_ui.elements
             )
         )
