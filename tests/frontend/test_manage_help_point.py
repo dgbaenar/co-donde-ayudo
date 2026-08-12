@@ -65,6 +65,7 @@ class RecordingUi:
     def row(self, *args, **kwargs): return self._record("row", *args, **kwargs)
     def card(self, *args, **kwargs): return self._record("card", *args, **kwargs)
     def label(self, *args, **kwargs): return self._record("label", *args, **kwargs)
+    def link(self, *args, **kwargs): return self._record("link", *args, **kwargs)
     def textarea(self, *args, **kwargs): return self._record("textarea", *args, **kwargs)
     def input(self, *args, **kwargs): return self._record("input", *args, **kwargs)
     def select(self, *args, **kwargs): return self._record("select", *args, **kwargs)
@@ -171,16 +172,17 @@ class ManageHelpPointTests(unittest.TestCase):
         self.assertIs(updated, self.point)
         self.assertEqual(calls, [(self.point, self.token)])
 
-    def test_update_info_delegates_description_contact_areas_and_token(self) -> None:
+    def test_update_info_delegates_name_description_contact_areas_and_token(self) -> None:
         calls = []
 
-        def update_info(point, token, description, contact, additional_areas):
-            calls.append((point, token, description, contact, additional_areas))
+        def update_info(point, token, name, description, contact, additional_areas):
+            calls.append((point, token, name, description, contact, additional_areas))
             return point
 
         updated = update_point_info(
             self.point,
             self.token,
+            "Nuevo nombre",
             "Nueva descripción",
             "Nuevo contacto",
             "Roldanillo y Zarzal",
@@ -194,6 +196,7 @@ class ManageHelpPointTests(unittest.TestCase):
                 (
                     self.point,
                     self.token,
+                    "Nuevo nombre",
                     "Nueva descripción",
                     "Nuevo contacto",
                     "Roldanillo y Zarzal",
@@ -204,13 +207,14 @@ class ManageHelpPointTests(unittest.TestCase):
     def test_update_info_delegates_none_additional_areas_when_absent(self) -> None:
         calls = []
 
-        def update_info(point, token, description, contact, additional_areas):
-            calls.append((point, token, description, contact, additional_areas))
+        def update_info(point, token, name, description, contact, additional_areas):
+            calls.append((point, token, name, description, contact, additional_areas))
             return point
 
         updated = update_point_info(
             self.point,
             self.token,
+            "Nuevo nombre",
             "Nueva descripción",
             "Nuevo contacto",
             None,
@@ -220,7 +224,7 @@ class ManageHelpPointTests(unittest.TestCase):
         self.assertIs(updated, self.point)
         self.assertEqual(
             calls,
-            [(self.point, self.token, "Nueva descripción", "Nuevo contacto", None)],
+            [(self.point, self.token, "Nuevo nombre", "Nueva descripción", "Nuevo contacto", None)],
         )
 
 
@@ -280,6 +284,46 @@ class ManageHelpPointInfoEditingTests(unittest.TestCase):
 
         self.assertEqual(self._additional_areas_field().value, "Zarzal")
 
+    def test_name_field_preloads_current_value_and_enforces_max_length(self) -> None:
+        manage_help_point.render_manage_help_point(
+            self.point,
+            self.token,
+            {},
+            lambda *_args: self.point,
+            lambda *_args: self.point,
+            lambda *_args: self.point,
+            lambda *_args: self.point,
+            lambda *_args: self.point,
+        )
+
+        name_field = next(
+            element
+            for element in self.fake_ui.elements
+            if element.kind == "input" and element.args == ("Nombre del punto",)
+        )
+        self.assertEqual(name_field.value, "Parque Central")
+        self.assertIn("maxlength=120", name_field.props_value)
+
+    def test_description_field_enforces_generous_max_length(self) -> None:
+        manage_help_point.render_manage_help_point(
+            self.point,
+            self.token,
+            {},
+            lambda *_args: self.point,
+            lambda *_args: self.point,
+            lambda *_args: self.point,
+            lambda *_args: self.point,
+            lambda *_args: self.point,
+        )
+
+        description_field = next(
+            element
+            for element in self.fake_ui.elements
+            if element.kind == "textarea"
+            and element.args == ("¿Qué está pasando en este punto?",)
+        )
+        self.assertIn("maxlength=5000", description_field.props_value)
+
     def test_additional_areas_field_preloads_empty_string_when_point_has_none(
         self,
     ) -> None:
@@ -317,8 +361,8 @@ class ManageHelpPointInfoEditingTests(unittest.TestCase):
     def test_saving_sends_edited_additional_areas_value_to_backend_handler(self) -> None:
         calls = []
 
-        def update_info(point, token, description, contact, additional_areas):
-            calls.append((point, token, description, contact, additional_areas))
+        def update_info(point, token, name, description, contact, additional_areas):
+            calls.append((point, token, name, description, contact, additional_areas))
             return point
 
         manage_help_point.render_manage_help_point(
@@ -341,6 +385,7 @@ class ManageHelpPointInfoEditingTests(unittest.TestCase):
                 (
                     self.point,
                     self.token,
+                    self.point.name,
                     self.point.description,
                     self.point.coordinator_contact,
                     "Roldanillo y Zarzal",
@@ -353,8 +398,8 @@ class ManageHelpPointInfoEditingTests(unittest.TestCase):
     ) -> None:
         calls = []
 
-        def update_info(point, token, description, contact, additional_areas):
-            calls.append((point, token, description, contact, additional_areas))
+        def update_info(point, token, name, description, contact, additional_areas):
+            calls.append((point, token, name, description, contact, additional_areas))
             return point
 
         manage_help_point.render_manage_help_point(
@@ -417,6 +462,12 @@ class ManageHelpPointResponsivePresentationTests(unittest.TestCase):
         self.assertEqual(selector.kwargs["value"], NeedStatus.NEEDS_HELP)
         labels = [element.args[0] for element in fake_ui.elements if element.kind == "label"]
         self.assertIn("Parque", labels)
+        self.assertTrue(
+            any(
+                element.kind == "link" and element.args == ("Volver al inicio", "/")
+                for element in fake_ui.elements
+            )
+        )
         for section in (
             "Información pública",
             "Necesidades",

@@ -47,7 +47,7 @@ class CreateHelpPoint:
     def __post_init__(self) -> None:
         for value, field, maximum in (
             (self.name, "name", 120),
-            (self.description, "description", 1_000),
+            (self.description, "description", 5_000),
             (self.city, "city", 120),
             (self.department, "department", 120),
             (self.address, "address", 240),
@@ -119,6 +119,8 @@ class PublicHelpPoint:
     affected_department: str
     latitude: float
     longitude: float
+    coordinator_name: str
+    coordinator_contact: str
     active: bool
     needs: tuple[Need, ...]
     additional_affected_areas: str | None = None

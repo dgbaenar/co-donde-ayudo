@@ -180,6 +180,8 @@ class PublicHelpPointFilteringTests(unittest.TestCase):
             affected_department=affected_department,
             latitude=3.0,
             longitude=-76.0,
+            coordinator_name="Ana",
+            coordinator_contact="Contacto",
             active=active,
             needs=(Need(id=uuid4(), category_id=category_id, status=NeedStatus.NEEDS_HELP),),
         )
@@ -236,6 +238,8 @@ class AffectedAreaTextTests(unittest.TestCase):
             affected_department="Valle del Cauca",
             latitude=3.0,
             longitude=-76.0,
+            coordinator_name="Ana",
+            coordinator_contact="Contacto",
             active=True,
             needs=(),
         )
@@ -479,14 +483,14 @@ class HomeResponsivePresentationTests(unittest.TestCase):
             id=uuid4(), name="Parque", description="Apoyo", city="Cali",
             department="Valle del Cauca", address="Calle 5 # 10-20",
             affected_city="Roldanillo", affected_department="Valle del Cauca",
-            latitude=3.4, longitude=-76.5, active=True,
+            latitude=3.4, longitude=-76.5, coordinator_name="Ana", coordinator_contact="Contacto", active=True,
             needs=(Need(id=uuid4(), category_id=category_id, status=NeedStatus.NEEDS_HELP),),
         )
         inactive = PublicHelpPoint(
             id=uuid4(), name="Cerrado", description="Cerrado", city="Bogotá",
             department="Cundinamarca", address=None,
             affected_city="Armenia", affected_department="Quindío",
-            latitude=4.6, longitude=-74.1, active=False,
+            latitude=4.6, longitude=-74.1, coordinator_name="Ana", coordinator_contact="Contacto", active=False,
             needs=(),
         )
         fake_ui = RecordingUi()
@@ -529,7 +533,7 @@ class HomeResponsivePresentationTests(unittest.TestCase):
             id=uuid4(), name="Parque", description="Apoyo", city="Cali",
             department="Valle del Cauca", address="Calle 5 # 10-20",
             affected_city=None, affected_department="Valle del Cauca",
-            latitude=3.4, longitude=-76.5, active=True,
+            latitude=3.4, longitude=-76.5, coordinator_name="Ana", coordinator_contact="Contacto", active=True,
             needs=(Need(id=uuid4(), category_id=category_id, status=NeedStatus.NEEDS_HELP),),
         )
         fake_ui = RecordingUi()
@@ -617,7 +621,7 @@ class HomeResponsivePresentationTests(unittest.TestCase):
             id=uuid4(), name="Parque", description="Apoyo", city="Cali",
             department="Valle del Cauca", address="Calle 5 # 10-20",
             affected_city="Roldanillo", affected_department="Valle del Cauca",
-            latitude=3.4, longitude=-76.5, active=True,
+            latitude=3.4, longitude=-76.5, coordinator_name="Ana", coordinator_contact="Contacto", active=True,
             needs=tuple(Need(id=uuid4(), category_id=category_id, status=status)
                         for category_id, (_, status) in zip(category_ids, need_specs)),
         )
@@ -685,7 +689,7 @@ class HomeResponsivePresentationTests(unittest.TestCase):
                 department=department, address="Calle 5",
                 affected_city=affected_city,
                 affected_department=affected_department,
-                latitude=4.0, longitude=-75.0, active=True,
+                latitude=4.0, longitude=-75.0, coordinator_name="Ana", coordinator_contact="Contacto", active=True,
                 needs=(Need(id=uuid4(), category_id=category_id, status=NeedStatus.NEEDS_HELP),),
             )
 

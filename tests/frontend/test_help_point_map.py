@@ -71,6 +71,8 @@ class HelpPointMapTests(unittest.TestCase):
             affected_department="Valle <afectado> Cauca",
             latitude=3.4516,
             longitude=-76.5320,
+            coordinator_name="Ana",
+            coordinator_contact="Contacto",
             active=active,
             needs=(
                 Need(

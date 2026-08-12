@@ -188,22 +188,26 @@ class HelpPointService:
         self,
         point: HelpPoint,
         admin_token: str,
+        name: str,
         description: str,
         coordinator_contact: str,
         additional_affected_areas: str | None = None,
     ) -> HelpPoint:
         self._require_admin_token(point, admin_token)
+        normalized_name = name.strip()
         normalized_description = description.strip()
         normalized_contact = coordinator_contact.strip()
         normalized_additional_areas = (
             additional_affected_areas.strip() if additional_affected_areas is not None else ""
         ) or None
-        validate_required(normalized_description, "description", 1_000)
+        validate_required(normalized_name, "name", 120)
+        validate_required(normalized_description, "description", 5_000)
         validate_required(normalized_contact, "coordinator_contact", 240)
         validate_optional(normalized_additional_areas, "additional_affected_areas", 500)
         return self._repository.update_help_point(
             replace(
                 point,
+                name=normalized_name,
                 description=normalized_description,
                 coordinator_contact=normalized_contact,
                 additional_affected_areas=normalized_additional_areas,
@@ -233,6 +237,8 @@ class HelpPointService:
             affected_department=point.affected_department,
             latitude=point.latitude,
             longitude=point.longitude,
+            coordinator_name=point.coordinator_name,
+            coordinator_contact=point.coordinator_contact,
             active=point.active,
             needs=tuple(replace(need, commitments=()) for need in point.needs),
             additional_affected_areas=point.additional_affected_areas,

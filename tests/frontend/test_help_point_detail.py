@@ -132,6 +132,8 @@ class HelpPointDetailTests(unittest.TestCase):
             affected_department="Valle del Cauca",
             latitude=3.4516,
             longitude=-76.532,
+            coordinator_name="Ana",
+            coordinator_contact="Contacto",
             active=True,
             needs=(
                 Need(
@@ -226,6 +228,8 @@ class HelpPointDetailTests(unittest.TestCase):
             if element.kind == "label"
         ]
         self.assertIn("Familias evacuadas reciben apoyo.", labels)
+        self.assertIn("Coordina: Ana", labels)
+        self.assertIn("Contacto: Contacto", labels)
         self.assertIn("Roldanillo, Valle del Cauca", labels)
         self.assertIn("Calle 5 # 10-20, Cali, Valle del Cauca", labels)
         self.assertFalse(any(label.startswith("También:") for label in labels))
@@ -295,6 +299,8 @@ class HelpPointDetailTests(unittest.TestCase):
             affected_department=self.point.affected_department,
             latitude=self.point.latitude,
             longitude=self.point.longitude,
+            coordinator_name="Ana",
+            coordinator_contact="Contacto",
             active=self.point.active,
             needs=self.point.needs,
             additional_affected_areas="Roldanillo y Zarzal",
@@ -345,6 +351,8 @@ class HelpPointDetailTests(unittest.TestCase):
             affected_department=self.point.affected_department,
             latitude=self.point.latitude,
             longitude=self.point.longitude,
+            coordinator_name="Ana",
+            coordinator_contact="Contacto",
             active=self.point.active,
             needs=self.point.needs,
         )
@@ -404,6 +412,8 @@ class VoyAAyudarDialogTests(unittest.TestCase):
             affected_department="Valle del Cauca",
             latitude=3.4516,
             longitude=-76.532,
+            coordinator_name="Ana",
+            coordinator_contact="Contacto",
             active=True,
             needs=(
                 Need(

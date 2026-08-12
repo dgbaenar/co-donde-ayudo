@@ -17,7 +17,7 @@ AddNeedHandler = Callable[[HelpPoint, str, UUID], HelpPoint]
 RemoveNeedHandler = Callable[[HelpPoint, str, UUID], HelpPoint]
 ChangeNeedStatusHandler = Callable[[HelpPoint, str, UUID, NeedStatus], HelpPoint]
 DeactivateHelpPointHandler = Callable[[HelpPoint, str], HelpPoint]
-UpdateHelpPointInfoHandler = Callable[[HelpPoint, str, str, str, str | None], HelpPoint]
+UpdateHelpPointInfoHandler = Callable[[HelpPoint, str, str, str, str, str | None], HelpPoint]
 
 
 def category_name(categories: Mapping[str, UUID], category_id: UUID) -> str:
@@ -79,13 +79,14 @@ def deactivate_point(
 def update_point_info(
     point: HelpPoint,
     admin_token: str,
+    name: str,
     description: str,
     coordinator_contact: str,
     additional_affected_areas: str | None,
     update_help_point_info: UpdateHelpPointInfoHandler,
 ) -> HelpPoint:
     return update_help_point_info(
-        point, admin_token, description, coordinator_contact, additional_affected_areas
+        point, admin_token, name, description, coordinator_contact, additional_affected_areas
     )
 
 
@@ -101,6 +102,9 @@ def render_manage_help_point(
 ) -> None:
     """Render administration controls using injected backend operations only."""
     with ui.column().classes("w-full max-w-md md:max-w-2xl mx-auto gap-4 p-4"):
+        ui.link("Volver al inicio", "/").classes(
+            "text-sm font-medium text-slate-700 min-h-[44px] flex items-center"
+        )
         ui.label("Administrar punto de ayuda").classes(
             "text-2xl font-bold text-slate-900"
         )
@@ -129,6 +133,9 @@ def render_manage_help_point(
                     ui.label("Información pública").classes(
                         "text-lg font-semibold text-slate-900"
                     ).props("role=heading aria-level=2")
+                    name = ui.input(
+                        "Nombre del punto", value=point.name
+                    ).classes("w-full").props("maxlength=120 counter")
                     description = ui.textarea(
                         "¿Qué está pasando en este punto?",
                         value=point.description,
@@ -136,7 +143,7 @@ def render_manage_help_point(
                             "Ej: Varias familias fueron evacuadas y estamos "
                             "organizando ayuda desde este parque."
                         ),
-                    ).classes("w-full")
+                    ).classes("w-full").props("maxlength=5000 counter")
                     coordinator_contact = ui.input(
                         "Contacto", value=point.coordinator_contact
                     ).classes("w-full")
@@ -150,6 +157,7 @@ def render_manage_help_point(
                             lambda: update_point_info(
                                 point,
                                 admin_token,
+                                name.value or "",
                                 description.value or "",
                                 coordinator_contact.value or "",
                                 additional_affected_areas.value or None,
