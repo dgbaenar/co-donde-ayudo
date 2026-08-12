@@ -69,9 +69,12 @@ def render_help_point_detail(
                     ui.label("Ayuda destinada a").classes(
                         "text-lg font-semibold text-slate-900"
                     ).props("role=heading aria-level=2")
-                    ui.label(
+                    affected_area = (
                         f"{point.affected_city}, {point.affected_department}"
-                    ).classes("text-slate-700")
+                        if point.affected_city
+                        else f"Todo el departamento de {point.affected_department}"
+                    )
+                    ui.label(affected_area).classes("text-slate-700")
                     if point.additional_affected_areas:
                         ui.label(
                             f"También: {point.additional_affected_areas}"

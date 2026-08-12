@@ -8,6 +8,7 @@ from uuid import uuid4
 from backend.domain.models import Need, NeedStatus, PublicHelpPoint
 from frontend.pages import home
 from frontend.pages.home import (
+    affected_area_text,
     filter_public_help_points,
     location_filter_options,
     status_text,
@@ -220,6 +221,37 @@ class PublicHelpPointFilteringTests(unittest.TestCase):
             ),
             (self.cali_water,),
         )
+
+class AffectedAreaTextTests(unittest.TestCase):
+    @staticmethod
+    def point(*, affected_city: str | None) -> PublicHelpPoint:
+        return PublicHelpPoint(
+            id=uuid4(),
+            name="Parque Central",
+            description="Se requiere apoyo.",
+            city="Cali",
+            department="Valle del Cauca",
+            address="Calle 5 # 10-20",
+            affected_city=affected_city,
+            affected_department="Valle del Cauca",
+            latitude=3.0,
+            longitude=-76.0,
+            active=True,
+            needs=(),
+        )
+
+    def test_uses_city_and_department_when_city_is_set(self) -> None:
+        self.assertEqual(
+            affected_area_text(self.point(affected_city="Roldanillo")),
+            "Roldanillo, Valle del Cauca",
+        )
+
+    def test_falls_back_to_whole_department_when_city_is_none(self) -> None:
+        self.assertEqual(
+            affected_area_text(self.point(affected_city=None)),
+            "Todo el departamento de Valle del Cauca",
+        )
+
 
 class NeedStatusTextTests(unittest.TestCase):
     def test_uses_the_exact_public_text_for_each_need_status(self) -> None:
@@ -489,6 +521,35 @@ class HomeResponsivePresentationTests(unittest.TestCase):
             "Recibe ayuda en: Calle 5 # 10-20, Cali, Valle del Cauca",
             labels,
         )
+
+    def test_result_row_shows_whole_department_when_affected_city_is_none(self) -> None:
+        category_id = uuid4()
+        department_wide = PublicHelpPoint(
+            id=uuid4(), name="Parque", description="Apoyo", city="Cali",
+            department="Valle del Cauca", address="Calle 5 # 10-20",
+            affected_city=None, affected_department="Valle del Cauca",
+            latitude=3.4, longitude=-76.5, active=True,
+            needs=(Need(id=uuid4(), category_id=category_id, status=NeedStatus.NEEDS_HELP),),
+        )
+        fake_ui = RecordingUi()
+        original_ui = home.ui
+        home.ui = fake_ui
+        try:
+            with patch.object(home, "render_help_point_map"):
+                home.render_home(
+                    (department_wide,),
+                    {"Agua": category_id},
+                    lambda: AFFECTED_DEPARTMENTS,
+                    list_localities,
+                )
+        finally:
+            home.ui = original_ui
+
+        labels = [element.args[0] for element in fake_ui.elements if element.kind == "label"]
+        self.assertIn(
+            "Ayuda destinada a: Todo el departamento de Valle del Cauca", labels
+        )
+        self.assertFalse(any("None" in label for label in labels))
 
     def test_department_change_replaces_city_options_and_refreshes_map_immediately(self) -> None:
         fake_ui = RecordingUi()

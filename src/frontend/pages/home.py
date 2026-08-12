@@ -31,6 +31,13 @@ def filter_public_help_points(
     )
 
 
+def affected_area_text(point: PublicHelpPoint) -> str:
+    """Describe the affected area, falling back to the whole department."""
+    if point.affected_city:
+        return f"{point.affected_city}, {point.affected_department}"
+    return f"Todo el departamento de {point.affected_department}"
+
+
 def location_filter_options(
     list_departments: ListDepartments,
     list_localities: ListLocalities,
@@ -119,8 +126,7 @@ def render_home(
                         with ui.column().classes("flex-1 min-w-0 gap-1"):
                             ui.label(point.name).classes("font-semibold text-slate-900")
                             ui.label(
-                                f"Ayuda destinada a: {point.affected_city}, "
-                                f"{point.affected_department}"
+                                f"Ayuda destinada a: {affected_area_text(point)}"
                             ).classes(
                                 "text-xs text-slate-500"
                             )

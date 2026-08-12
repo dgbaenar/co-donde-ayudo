@@ -57,7 +57,9 @@ class HelpPointMapTests(unittest.TestCase):
     def setUp(self) -> None:
         self.category_id = uuid4()
 
-    def point(self, *, active=True, name="Parque Central") -> PublicHelpPoint:
+    def point(
+        self, *, active=True, name="Parque Central", affected_city="Roldanillo & norte"
+    ) -> PublicHelpPoint:
         return PublicHelpPoint(
             id=uuid4(),
             name=name,
@@ -65,7 +67,7 @@ class HelpPointMapTests(unittest.TestCase):
             city="Cali & alrededores",
             department="Valle <del> Cauca",
             address="Calle 5 <principal>",
-            affected_city="Roldanillo & norte",
+            affected_city=affected_city,
             affected_department="Valle <afectado> Cauca",
             latitude=3.4516,
             longitude=-76.5320,
@@ -78,6 +80,14 @@ class HelpPointMapTests(unittest.TestCase):
                 ),
             ),
         )
+
+    def test_popup_shows_whole_department_when_affected_city_is_none(self) -> None:
+        point = self.point(affected_city=None)
+
+        popup = help_point_map.build_popup_html(point, {})
+
+        self.assertIn("Todo el departamento de Valle &lt;afectado&gt; Cauca", popup)
+        self.assertNotIn("None", popup)
 
     def test_popup_escapes_all_dynamic_text_and_links_to_public_detail(self) -> None:
         point = self.point(name='<script>alert("x")</script>')

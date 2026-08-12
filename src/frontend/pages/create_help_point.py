@@ -77,7 +77,7 @@ def build_command(
     return CreateHelpPoint(
         name=values.name.strip(),
         description=values.description.strip(),
-        affected_city=values.affected_city.strip(),
+        affected_city=values.affected_city.strip() or None,
         affected_department=values.affected_department.strip(),
         city=values.city.strip(),
         department=values.department.strip(),
@@ -145,13 +145,18 @@ def render_create_help_point(
     submitting = False
     published = False
 
-    def update_locality_select(department_select, locality_select) -> None:
+    def update_locality_select(
+        department_select,
+        locality_select,
+        *,
+        no_selection_label: str = "Selecciona una ciudad / municipio",
+    ) -> None:
         locality_select.value = ""
         selected_department = department_select.value or ""
         if selected_department:
             localities = tuple(list_localities(selected_department))
             locality_select.options = {
-                "": "Selecciona una ciudad / municipio",
+                "": no_selection_label,
                 **{locality: locality for locality in localities},
             }
             locality_select.enable()
@@ -161,7 +166,11 @@ def render_create_help_point(
         locality_select.update()
 
     def change_affected_department() -> None:
-        update_locality_select(affected_department, affected_city)
+        update_locality_select(
+            affected_department,
+            affected_city,
+            no_selection_label="Toda la zona del departamento (opcional)",
+        )
 
     def change_department() -> None:
         update_locality_select(department, city)
@@ -187,7 +196,7 @@ def render_create_help_point(
             affected_city = ui.select(
                 options={"": "Selecciona primero un departamento"},
                 value="",
-                label="Ciudad / Municipio afectado",
+                label="Ciudad / Municipio afectado (opcional)",
             ).classes("w-full").props(_BOUNDED_MENU_PROPS)
             affected_city.disable()
             additional_affected_areas = ui.textarea(

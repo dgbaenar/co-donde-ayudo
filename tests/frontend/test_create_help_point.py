@@ -140,6 +140,44 @@ class CreateHelpPointTests(unittest.TestCase):
         self.assertEqual(command.coordinator_contact, "Contacto local")
         self.assertEqual(command.category_ids, (self.water_id, self.blanket_id))
 
+    def test_build_command_converts_blank_affected_city_to_none(self) -> None:
+        values = FormValues(
+            name=self.values.name,
+            description=self.values.description,
+            affected_city="",
+            affected_department=self.values.affected_department,
+            city=self.values.city,
+            department=self.values.department,
+            address=self.values.address,
+            latitude=self.values.latitude,
+            longitude=self.values.longitude,
+            coordinator_name=self.values.coordinator_name,
+            coordinator_contact=self.values.coordinator_contact,
+        )
+
+        command = build_command(values, ("Agua",), self.categories)
+
+        self.assertIsNone(command.affected_city)
+
+    def test_build_command_converts_whitespace_only_affected_city_to_none(self) -> None:
+        values = FormValues(
+            name=self.values.name,
+            description=self.values.description,
+            affected_city="   ",
+            affected_department=self.values.affected_department,
+            city=self.values.city,
+            department=self.values.department,
+            address=self.values.address,
+            latitude=self.values.latitude,
+            longitude=self.values.longitude,
+            coordinator_name=self.values.coordinator_name,
+            coordinator_contact=self.values.coordinator_contact,
+        )
+
+        command = build_command(values, ("Agua",), self.categories)
+
+        self.assertIsNone(command.affected_city)
+
     def test_build_command_defaults_blank_additional_affected_areas_to_none(self) -> None:
         command = build_command(self.values, ("Agua",), self.categories)
 
@@ -375,7 +413,7 @@ class CreateHelpPointResponsivePresentationTests(unittest.TestCase):
 
         select_values = {
             "Departamento afectado": "Valle del Cauca",
-            "Ciudad / Municipio afectado": "Roldanillo",
+            "Ciudad / Municipio afectado (opcional)": "Roldanillo",
             "Departamento del punto": "Valle del Cauca",
             "Ciudad / Municipio del punto": "Cali",
         }
@@ -438,7 +476,7 @@ class CreateHelpPointResponsivePresentationTests(unittest.TestCase):
             element
             for element in fake_ui.elements
             if element.kind == "select"
-            and element.kwargs.get("label") == "Ciudad / Municipio afectado"
+            and element.kwargs.get("label") == "Ciudad / Municipio afectado (opcional)"
         )
         department = next(
             element
@@ -521,6 +559,31 @@ class CreateHelpPointResponsivePresentationTests(unittest.TestCase):
         self.assertFalse(city.enabled)
         self.assertEqual(city.disable_calls, 2)
         self.assertEqual(city.options, {"": "Selecciona primero un departamento"})
+
+        affected_department.value = "Valle del Cauca"
+        affected_department.on_change()
+
+        self.assertEqual(
+            affected_city.options,
+            {
+                "": "Toda la zona del departamento (opcional)",
+                "Cali": "Cali",
+                "Palmira": "Palmira",
+            },
+        )
+        self.assertEqual(affected_city.value, "")
+        self.assertTrue(affected_city.enabled)
+        self.assertEqual(affected_city.enable_calls, 1)
+
+        affected_city.value = ""
+        affected_department.value = ""
+        affected_department.on_change()
+
+        self.assertEqual(affected_city.value, "")
+        self.assertFalse(affected_city.enabled)
+        self.assertEqual(
+            affected_city.options, {"": "Selecciona primero un departamento"}
+        )
 
         labels = [
             element.args[0]
@@ -652,6 +715,92 @@ class CreateHelpPointResponsivePresentationTests(unittest.TestCase):
 
         self.assertEqual(len(create_calls), 1)
         self.assertIsNone(create_calls[0].additional_affected_areas)
+
+    def test_publish_sends_none_affected_city_when_left_unselected(self) -> None:
+        fake_ui = RecordingUi()
+        original_ui = create_help_point.ui
+        create_help_point.ui = fake_ui
+        create_calls = []
+        category_id = uuid4()
+        try:
+            with patch.object(
+                create_help_point,
+                "render_location_picker",
+                return_value=SimpleNamespace(latitude=3.45, longitude=-76.53),
+            ):
+                create_help_point.render_create_help_point(
+                    {"Agua": category_id},
+                    lambda command: create_calls.append(command)
+                    or SimpleNamespace(admin_token="synthetic-token"),
+                    lambda _name: self.fail("empty custom category must not be created"),
+                    lambda: True,
+                    lambda: ("Valle del Cauca",),
+                    self.list_localities,
+                    lambda: self.AFFECTED_DEPARTMENTS,
+                    lambda *_args: self.fail("geocoder must not run"),
+                    "https://dondeayudo.example",
+                )
+                self.fill_valid_form(fake_ui, need="Agua")
+                affected_city = next(
+                    element
+                    for element in fake_ui.elements
+                    if element.kind == "select"
+                    and element.kwargs.get("label")
+                    == "Ciudad / Municipio afectado (opcional)"
+                )
+                affected_city.value = ""
+
+                publish = next(
+                    element
+                    for element in fake_ui.elements
+                    if element.kind == "button"
+                    and element.args == ("Publicar punto de ayuda",)
+                )
+                publish.kwargs["on_click"]()
+        finally:
+            create_help_point.ui = original_ui
+
+        self.assertEqual(len(create_calls), 1)
+        self.assertIsNone(create_calls[0].affected_city)
+
+    def test_publish_sends_selected_affected_city_when_chosen(self) -> None:
+        fake_ui = RecordingUi()
+        original_ui = create_help_point.ui
+        create_help_point.ui = fake_ui
+        create_calls = []
+        category_id = uuid4()
+        try:
+            with patch.object(
+                create_help_point,
+                "render_location_picker",
+                return_value=SimpleNamespace(latitude=3.45, longitude=-76.53),
+            ):
+                create_help_point.render_create_help_point(
+                    {"Agua": category_id},
+                    lambda command: create_calls.append(command)
+                    or SimpleNamespace(admin_token="synthetic-token"),
+                    lambda _name: self.fail("empty custom category must not be created"),
+                    lambda: True,
+                    lambda: ("Valle del Cauca",),
+                    self.list_localities,
+                    lambda: self.AFFECTED_DEPARTMENTS,
+                    lambda *_args: self.fail("geocoder must not run"),
+                    "https://dondeayudo.example",
+                )
+                self.fill_valid_form(fake_ui, need="Agua")
+
+                publish = next(
+                    element
+                    for element in fake_ui.elements
+                    if element.kind == "button"
+                    and element.args == ("Publicar punto de ayuda",)
+                )
+                publish.kwargs["on_click"]()
+        finally:
+            create_help_point.ui = original_ui
+
+        self.assertEqual(len(create_calls), 1)
+        self.assertEqual(create_calls[0].affected_city, "Roldanillo")
 
     def test_address_search_geocodes_physical_location_and_updates_picker(self) -> None:
         fake_ui = RecordingUi()

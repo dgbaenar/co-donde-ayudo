@@ -37,7 +37,11 @@ def build_popup_html(
         "</li>"
         for need in point.needs
     )
-    affected_location = f"{point.affected_city}, {point.affected_department}"
+    affected_location = (
+        f"Todo el departamento de {point.affected_department}"
+        if point.affected_city is None
+        else f"{point.affected_city}, {point.affected_department}"
+    )
     reception_location = ", ".join(
         value for value in (point.address, point.city, point.department) if value
     )

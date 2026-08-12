@@ -239,6 +239,39 @@ class HelpPointDetailTests(unittest.TestCase):
         ]
         self.assertFalse(any(label.startswith("También:") for label in labels))
 
+    def test_affected_area_shows_whole_department_when_affected_city_is_none(
+        self,
+    ) -> None:
+        department_wide_point = PublicHelpPoint(
+            id=self.point.id,
+            name=self.point.name,
+            description=self.point.description,
+            city=self.point.city,
+            department=self.point.department,
+            address=self.point.address,
+            affected_city=None,
+            affected_department=self.point.affected_department,
+            latitude=self.point.latitude,
+            longitude=self.point.longitude,
+            active=self.point.active,
+            needs=self.point.needs,
+        )
+
+        with patch.object(help_point_detail, "render_help_point_map"):
+            help_point_detail.render_help_point_detail_for_path(
+                str(department_wide_point.id),
+                lambda _point_id: department_wide_point,
+                self.categories,
+            )
+
+        labels = [
+            element.args[0]
+            for element in self.fake_ui.elements
+            if element.kind == "label"
+        ]
+        self.assertIn("Todo el departamento de Valle del Cauca", labels)
+        self.assertFalse(any("None" in label for label in labels))
+
     def test_invalid_or_missing_point_shows_same_generic_message(self) -> None:
         for path_value, getter in (
             ("not-a-uuid", lambda _point_id: self.fail("invalid UUID must not reach backend")),
