@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
+from datetime import UTC, datetime
 import logging
 from uuid import UUID
 
@@ -35,6 +36,30 @@ def commitment_count_text(count: int) -> str | None:
     if count == 1:
         return "1 persona confirmó ayuda"
     return f"{count} personas confirmaron ayuda"
+
+
+def _render_updated_at(updated_at: datetime) -> None:
+    """Show a relative or absolute last-updated timestamp."""
+    now = datetime.now(UTC)
+    delta = now - updated_at
+    if delta.total_seconds() < 60:
+        label = "Actualizado hace menos de un minuto"
+    elif delta.total_seconds() < 3600:
+        minutes = int(delta.total_seconds() // 60)
+        label = f"Actualizado hace {minutes} minuto{'s' if minutes != 1 else ''}"
+    elif delta.total_seconds() < 86400:
+        hours = int(delta.total_seconds() // 3600)
+        label = f"Actualizado hace {hours} hora{'s' if hours != 1 else ''}"
+    else:
+        months = [
+            "ene", "feb", "mar", "abr", "may", "jun",
+            "jul", "ago", "sep", "oct", "nov", "dic",
+        ]
+        label = (
+            f"Actualizado el {updated_at.day} "
+            f"{months[updated_at.month - 1]} {updated_at.year}"
+        )
+    ui.label(label).classes("text-xs text-slate-400 mt-1")
 
 
 def render_help_point_detail_for_path(
@@ -155,6 +180,7 @@ def render_help_point_detail(
                     ui.label(f"Contacto: {point.coordinator_contact}").classes(
                         "text-base text-slate-700"
                     )
+                _render_updated_at(point.updated_at)
 
             with ui.grid().classes("w-full grid-cols-1 md:grid-cols-2 gap-3"):
                 with ui.column().classes(
