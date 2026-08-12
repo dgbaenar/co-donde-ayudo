@@ -1,0 +1,14 @@
+.DS_Store
+.env
+.git
+.github
+.venv
+.nicegui
+.pytest_cache
+.ruff_cache
+.superpowers
+.playwright-cli
+__pycache__
+*.py[cod]
+tests
+output

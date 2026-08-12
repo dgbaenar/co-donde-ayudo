@@ -6,13 +6,17 @@ from pydantic import ValidationError
 from backend.core.config import ApplicationSettings, DatabaseSettings
 
 
-def application_settings(app_base_url: str) -> ApplicationSettings:
+def application_settings(
+    app_base_url: str,
+    **values,
+) -> ApplicationSettings:
     return ApplicationSettings(
         DATABASE_URL="postgresql://example",
         APP_BASE_URL=app_base_url,
         COORDINATOR_ACCESS_KEY="synthetic-access-key",
         APP_SESSION_SECRET="synthetic-session-secret",
         _env_file=None,
+        **values,
     )
 
 
@@ -128,3 +132,25 @@ def test_application_settings_rejects_invalid_app_base_url(
 ) -> None:
     with pytest.raises(ValidationError):
         application_settings(app_base_url)
+
+
+def test_application_settings_defaults_port_to_8080(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("PORT", raising=False)
+
+    settings = application_settings("http://localhost:8080")
+
+    assert settings.port == 8080
+
+
+def test_application_settings_accepts_valid_explicit_port() -> None:
+    settings = application_settings("https://dondeayudo.example", PORT="4321")
+
+    assert settings.port == 4321
+
+
+@pytest.mark.parametrize("port", ["0", "65536", "not-a-port"])
+def test_application_settings_rejects_invalid_port(port: str) -> None:
+    with pytest.raises(ValidationError):
+        application_settings("https://dondeayudo.example", PORT=port)

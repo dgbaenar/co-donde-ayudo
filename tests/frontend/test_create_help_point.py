@@ -243,6 +243,7 @@ class FrontendBoundaryTests(unittest.TestCase):
                 "update_help_point_info",
                 "authorize_coordinator_access",
                 "get_public_help_point",
+                "is_database_ready",
             ),
         )
         self.assertIn('@ui.page("/", title="¿Dónde ayudo?")', source)
@@ -250,6 +251,9 @@ class FrontendBoundaryTests(unittest.TestCase):
         self.assertIn('@ui.page("/puntos/{point_id}")', source)
         self.assertIn('@ui.page("/administrar/{admin_token}")', source)
         self.assertIn("from frontend.pages.manage_help_point import", source)
+        self.assertIn("ui.add_css(", source)
+        self.assertIn(".bounded-select-menu", source)
+        self.assertIn("shared=True", source)
         self.assertNotIn("ui.run(", source)
 
 
@@ -404,7 +408,11 @@ class CreateHelpPointResponsivePresentationTests(unittest.TestCase):
             with self.subTest(select=select.kwargs["label"]):
                 self.assertIn("behavior=menu", select.props_value)
                 self.assertIn(
-                    'popup-content-style="max-height: 40vh; overflow-y: auto"',
+                    'popup-content-style="max-height: 40vh !important; overflow-y: auto"',
+                    select.props_value,
+                )
+                self.assertIn(
+                    "popup-content-class=bounded-select-menu",
                     select.props_value,
                 )
                 self.assertNotIn("options-dense", select.props_value)

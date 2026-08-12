@@ -11,7 +11,10 @@ from backend.domain.emergency_scope import list_affected_departments
 from backend.infrastructure.geocoding.nominatim import NominatimGeocoder
 from backend.infrastructure.locations.catalog import ColombiaLocationCatalog
 from backend.infrastructure.postgres.config import DatabaseConfig
-from backend.infrastructure.postgres.database import create_session_factory
+from backend.infrastructure.postgres.database import (
+    create_database_readiness_probe,
+    create_session_factory,
+)
 from backend.infrastructure.postgres.repository import PostgresHelpPointRepository
 from frontend.app import create_app
 
@@ -20,6 +23,7 @@ def build_runtime(settings: ApplicationSettings) -> tuple[str, bool]:
     """Build application dependencies and register routes from explicit configuration."""
     config = DatabaseConfig.from_url(settings.database_url.get_secret_value())
     session_factory = create_session_factory(config)
+    is_database_ready = create_database_readiness_probe(session_factory)
     repository = PostgresHelpPointRepository(session_factory)
     location_catalog = ColombiaLocationCatalog.from_package_data()
     service = HelpPointService(repository, location_catalog)
@@ -45,6 +49,7 @@ def build_runtime(settings: ApplicationSettings) -> tuple[str, bool]:
         deactivate_help_point=service.deactivate_help_point,
         authorize_coordinator_access=access_service.authorize,
         get_public_help_point=service.get_public_help_point,
+        is_database_ready=is_database_ready,
     )
     return (
         settings.app_session_secret.get_secret_value(),
@@ -54,8 +59,12 @@ def build_runtime(settings: ApplicationSettings) -> tuple[str, bool]:
 
 def run() -> None:
     """Build the configured application and start the NiceGUI server."""
-    storage_secret, https_only = build_runtime(ApplicationSettings())
+    settings = ApplicationSettings()
+    storage_secret, https_only = build_runtime(settings)
     ui.run(
+        host="0.0.0.0",
+        port=settings.port,
+        show=False,
         reload=False,
         storage_secret=storage_secret,
         session_middleware_kwargs={"https_only": https_only},

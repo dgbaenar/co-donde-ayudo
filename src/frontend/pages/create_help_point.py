@@ -23,7 +23,8 @@ GeocodeAddress = Callable[[str, str, str], Awaitable[object | None]]
 
 _BOUNDED_MENU_PROPS = (
     'outlined dense behavior=menu color=blue-grey-9 '
-    'popup-content-style="max-height: 40vh; overflow-y: auto"'
+    'popup-content-class=bounded-select-menu '
+    'popup-content-style="max-height: 40vh !important; overflow-y: auto"'
 )
 _CUSTOM_CATEGORY_PLACEHOLDER_ID = UUID(int=0)
 _PUBLICATION_FAILURE_MESSAGE = "No fue posible publicar el punto. Inténtalo de nuevo."

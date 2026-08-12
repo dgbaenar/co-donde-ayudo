@@ -275,8 +275,16 @@ class ManageHelpPointResponsivePresentationTests(unittest.TestCase):
             self.assertIn("behavior=menu", current_selector.props_value)
             self.assertNotIn("options-dense", current_selector.props_value)
         self.assertIn(
-            'popup-content-style="max-height: 40vh; overflow-y: auto"',
+            'popup-content-style="max-height: 40vh !important; overflow-y: auto"',
             category_selector.props_value,
+        )
+        self.assertIn(
+            "popup-content-class=bounded-select-menu",
+            category_selector.props_value,
+        )
+        self.assertNotIn(
+            "popup-content-class=bounded-select-menu",
+            selector.props_value,
         )
 
     def test_remove_and_deactivate_require_explicit_confirmation_without_token_copy(self) -> None:

@@ -172,19 +172,22 @@ def render_home(
     with ui.column().classes("w-full min-h-screen bg-white text-slate-900"):
         with ui.column().classes("w-full max-w-7xl mx-auto gap-4 p-4"):
             with ui.row().classes(
-                "w-full items-center justify-between gap-3 flex-nowrap"
+                "w-full items-center justify-between gap-3 flex-wrap sm:flex-nowrap"
             ):
-                with ui.row().classes("items-center gap-2 min-w-0 flex-1"):
+                with ui.row().classes(
+                    "w-full sm:w-auto items-center gap-2 min-w-0 flex-1 flex-nowrap"
+                ):
                     ui.icon("location_on").classes(
                         "text-white bg-emerald-700 rounded-xl p-2 text-xl shrink-0"
                     ).props("aria-hidden=true")
                     ui.label("¿Dónde ayudo?").classes(
-                        "text-xl sm:text-2xl font-semibold leading-tight "
-                        "text-emerald-950"
+                        "text-lg sm:text-2xl font-semibold leading-tight "
+                        "text-emerald-950 whitespace-nowrap"
                     )
                 ui.link("Coordinar un punto", "/acceso").classes(
-                    "min-h-[44px] flex items-center px-3 rounded-lg "
-                    "font-medium text-emerald-800 hover:bg-slate-100 shrink-0"
+                    "w-full sm:w-auto min-h-[48px] flex items-center justify-center "
+                    "px-4 text-base rounded-lg font-medium bg-emerald-700 text-white "
+                    "hover:bg-emerald-800 no-underline shadow-sm shrink-0"
                 )
             with ui.column().classes("w-full gap-1 max-w-3xl"):
                 ui.label("Explora el mapa o revisa la lista de puntos activos.").classes(
@@ -225,7 +228,8 @@ def render_home(
                         "w-full sm:w-auto sm:flex-1 sm:min-w-0 bg-white rounded-lg"
                     ).props(
                         'outlined dense behavior=menu color=blue-grey-9 '
-                        'popup-content-style="max-height: 40vh; overflow-y: auto"'
+                        'popup-content-class=bounded-select-menu '
+                        'popup-content-style="max-height: 40vh !important; overflow-y: auto"'
                     )
                     city = ui.select(
                         options=empty_city_options(),
@@ -236,7 +240,8 @@ def render_home(
                         "w-full sm:w-auto sm:flex-1 sm:min-w-0 bg-white rounded-lg"
                     ).props(
                         'outlined dense behavior=menu color=blue-grey-9 '
-                        'popup-content-style="max-height: 40vh; overflow-y: auto"'
+                        'popup-content-class=bounded-select-menu '
+                        'popup-content-style="max-height: 40vh !important; overflow-y: auto"'
                     )
                     city.disable()
             with ui.grid().classes(

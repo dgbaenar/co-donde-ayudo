@@ -32,6 +32,7 @@ class DatabaseSettings(BaseSettings):
 
 
 class ApplicationSettings(DatabaseSettings):
+    port: int = Field(default=8080, validation_alias="PORT", ge=1, le=65_535)
     app_base_url: str = Field(validation_alias="APP_BASE_URL")
     coordinator_access_key: SecretStr = Field(
         validation_alias="COORDINATOR_ACCESS_KEY"

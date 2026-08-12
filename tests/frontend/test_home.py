@@ -309,7 +309,11 @@ class HomeResponsivePresentationTests(unittest.TestCase):
             with self.subTest(select=select.kwargs["label"]):
                 self.assertIn("behavior=menu", select.props_value)
                 self.assertIn(
-                    'popup-content-style="max-height: 40vh; overflow-y: auto"',
+                    'popup-content-style="max-height: 40vh !important; overflow-y: auto"',
+                    select.props_value,
+                )
+                self.assertIn(
+                    "popup-content-class=bounded-select-menu",
                     select.props_value,
                 )
                 self.assertNotIn("options-dense", select.props_value)
@@ -348,7 +352,7 @@ class HomeResponsivePresentationTests(unittest.TestCase):
         self.assertTrue(all("color=blue-grey-9" in element.props_value for element in selects))
         self.assertTrue(any(element.kind == "icon" and element.args == ("location_on",) for element in fake_ui.elements))
         cta = next(element for element in fake_ui.elements if element.kind == "link" and element.args == ("Coordinar un punto", "/acceso"))
-        self.assertIn("text-emerald", cta.classes_value)
+        self.assertIn("bg-emerald-700", cta.classes_value)
         title = next(
             element
             for element in fake_ui.elements
@@ -380,10 +384,23 @@ class HomeResponsivePresentationTests(unittest.TestCase):
             self.assertIsNotNone(brand)
             self.assertIn(title, brand.children)
             self.assertIn(cta, header.children)
-            self.assertIn("flex-nowrap", header.classes_value)
+            self.assertIn("flex-wrap", header.classes_value)
+            self.assertIn("sm:flex-nowrap", header.classes_value)
             self.assertIn("flex-1", brand.classes_value)
             self.assertIn("min-w-0", brand.classes_value)
+            self.assertIn("flex-nowrap", brand.classes_value)
+            self.assertIn("whitespace-nowrap", title.classes_value)
+            self.assertIn("text-lg", title.classes_value)
+            self.assertIn("sm:text-2xl", title.classes_value)
             self.assertIn("shrink-0", cta.classes_value)
+            self.assertIn("w-full", cta.classes_value)
+            self.assertIn("sm:w-auto", cta.classes_value)
+            self.assertIn("min-h-[48px]", cta.classes_value)
+            self.assertIn("text-base", cta.classes_value)
+            self.assertIn("px-4", cta.classes_value)
+            self.assertIn("bg-emerald-700", cta.classes_value)
+            self.assertIn("text-white", cta.classes_value)
+            self.assertIn("no-underline", cta.classes_value)
         emergency_title = next(
             (
                 element

@@ -13,10 +13,12 @@ class RecordingElement:
         self.kind, self.args, self.kwargs = kind, args, kwargs
         self.value = kwargs.get("value")
         self.classes_value = ""
+        self.props_value = ""
 
     def __enter__(self): return self
     def __exit__(self, *_args): return False
     def classes(self, value): self.classes_value = value; return self
+    def props(self, value): self.props_value = value; return self
 
 
 class RecordingNavigation:
@@ -34,6 +36,8 @@ class RecordingUi:
         self.elements = []
         self.navigate = RecordingNavigation()
         self.pages = {}
+        self.css_rules = []
+        self.css_calls = []
         self.on_notify = lambda: None
 
     def _record(self, kind, *args, **kwargs):
@@ -48,13 +52,32 @@ class RecordingUi:
 
         return register
 
+    def add_css(self, rule, **kwargs):
+        self.css_rules.append(rule)
+        self.css_calls.append((rule, kwargs))
+
     def column(self, *args, **kwargs): return self._record("column", *args, **kwargs)
+    def card(self, *args, **kwargs): return self._record("card", *args, **kwargs)
     def label(self, *args, **kwargs): return self._record("label", *args, **kwargs)
+    def link(self, *args, **kwargs): return self._record("link", *args, **kwargs)
     def input(self, *args, **kwargs): return self._record("input", *args, **kwargs)
     def button(self, *args, **kwargs): return self._record("button", *args, **kwargs)
     def notify(self, *args, **kwargs):
         self.on_notify()
         return self._record("notify", *args, **kwargs)
+
+
+class RecordingApp:
+    def __init__(self, user_storage) -> None:
+        self.storage = SimpleNamespace(user=user_storage)
+        self.routes = {}
+
+    def get(self, path):
+        def register(handler):
+            self.routes[path] = handler
+            return handler
+
+        return register
 
 
 class RecordingAuthorizer:
@@ -71,7 +94,7 @@ class CoordinatorAccessPageTests(unittest.TestCase):
     def setUp(self) -> None:
         self.fake_ui = RecordingUi()
         self.user_storage = {}
-        self.fake_app = SimpleNamespace(storage=SimpleNamespace(user=self.user_storage))
+        self.fake_app = RecordingApp(self.user_storage)
 
     def render(self, authorizer) -> None:
         self.ui_patch = patch.object(coordinator_access, "ui", self.fake_ui)
@@ -106,6 +129,49 @@ class CoordinatorAccessPageTests(unittest.TestCase):
         self.assertNotIn("synthetic-wrong-key", rendered_notification)
         self.assertNotIn("synthetic-correct-key", rendered_notification)
 
+    def test_renders_guidance_plain_contact_and_large_primary_action(self) -> None:
+        self.render(RecordingAuthorizer("synthetic-correct-key"))
+
+        labels = [
+            element.args[0]
+            for element in self.fake_ui.elements
+            if element.kind == "label"
+        ]
+        self.assertIn("Acceso para coordinadores", labels)
+        self.assertIn(
+            "Si coordinas un punto de ayuda o de recolección, ingresa la clave "
+            "compartida para crear y publicar el punto.",
+            labels,
+        )
+        contact = (
+            "¿No tienes una clave o necesitas ayuda? "
+            "Contacto por WhatsApp: dan.barod"
+        )
+        self.assertIn(contact, labels)
+        self.assertFalse(
+            any(
+                element.kind == "link" and "dan.barod" in repr(element.args)
+                for element in self.fake_ui.elements
+            )
+        )
+        self.assertFalse(
+            any("wa.me" in repr(element.args) for element in self.fake_ui.elements)
+        )
+        card = next(
+            element for element in self.fake_ui.elements if element.kind == "card"
+        )
+        self.assertIn("bg-white", card.classes_value)
+        self.assertIn("border-slate-200", card.classes_value)
+        button = next(
+            element
+            for element in self.fake_ui.elements
+            if element.kind == "button" and element.args == ("Continuar",)
+        )
+        self.assertIn("w-full", button.classes_value)
+        self.assertIn("min-h-[48px]", button.classes_value)
+        self.assertIn("unelevated", button.props_value)
+        self.assertIn("color=green-9", button.props_value)
+
     def test_correct_key_sets_boolean_session_authorization_and_navigates_to_create(self) -> None:
         authorizer = RecordingAuthorizer("synthetic-correct-key")
         self.render(authorizer)
@@ -133,7 +199,7 @@ class CoordinatorAccessRouteTests(unittest.TestCase):
     def setUp(self) -> None:
         self.fake_ui = RecordingUi()
         self.user_storage = {}
-        self.fake_app = SimpleNamespace(storage=SimpleNamespace(user=self.user_storage))
+        self.fake_app = RecordingApp(self.user_storage)
         async def geocode_address(_address, _city, _department):
             return None
 
@@ -155,6 +221,7 @@ class CoordinatorAccessRouteTests(unittest.TestCase):
             "update_help_point_info": lambda *_args: object(),
             "authorize_coordinator_access": lambda _key: False,
             "get_public_help_point": lambda _point_id: None,
+            "is_database_ready": lambda: True,
         }
 
     def register_routes(self) -> None:
@@ -174,6 +241,20 @@ class CoordinatorAccessRouteTests(unittest.TestCase):
 
         render.assert_not_called()
         self.assertEqual(self.fake_ui.navigate.paths, ["/acceso"])
+
+    def test_create_app_registers_one_global_bounded_menu_rule(self) -> None:
+        self.register_routes()
+
+        self.assertEqual(
+            self.fake_ui.css_calls,
+            [
+                (
+                    ".bounded-select-menu { max-height: 40vh !important; "
+                    "overflow-y: auto !important; }",
+                    {"shared": True},
+                )
+            ],
+        )
 
     def test_access_route_renders_with_injected_authorizer(self) -> None:
         self.register_routes()
@@ -234,6 +315,28 @@ class CoordinatorAccessRouteTests(unittest.TestCase):
         )
         render_manage.assert_called_once()
         self.assertEqual(self.fake_ui.navigate.paths, [])
+
+    def test_health_routes_return_fixed_generic_responses(self) -> None:
+        self.register_routes()
+
+        health = self.fake_app.routes["/healthz"]()
+        ready = self.fake_app.routes["/readyz"]()
+
+        self.assertEqual((health.status_code, health.body), (200, b"ok"))
+        self.assertEqual((ready.status_code, ready.body), (200, b"ready"))
+
+    def test_readiness_failure_returns_503_without_exception_details(self) -> None:
+        def unavailable() -> bool:
+            return False
+
+        self.dependencies["is_database_ready"] = unavailable
+        self.register_routes()
+
+        response = self.fake_app.routes["/readyz"]()
+
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.body, b"not ready")
+        self.assertNotIn(b"database", response.body.lower())
 
 
 if __name__ == "__main__":

@@ -6,6 +6,7 @@ from collections.abc import Callable, Mapping, Sequence
 from uuid import UUID
 
 from nicegui import app, ui
+from starlette.responses import PlainTextResponse
 
 from backend.domain.models import HelpPoint, PublicHelpPoint
 from frontend.pages.create_help_point import (
@@ -52,8 +53,24 @@ def create_app(
     update_help_point_info: UpdateHelpPointInfoHandler,
     authorize_coordinator_access: AuthorizeCoordinatorAccess,
     get_public_help_point: GetPublicHelpPoint,
+    is_database_ready: Callable[[], bool],
 ) -> None:
     """Register routes without creating external clients or starting a server."""
+    @app.get("/healthz")
+    def health() -> PlainTextResponse:
+        return PlainTextResponse("ok", status_code=200)
+
+    @app.get("/readyz")
+    def readiness() -> PlainTextResponse:
+        if is_database_ready():
+            return PlainTextResponse("ready", status_code=200)
+        return PlainTextResponse("not ready", status_code=503)
+
+    ui.add_css(
+        ".bounded-select-menu { max-height: 40vh !important; "
+        "overflow-y: auto !important; }",
+        shared=True,
+    )
 
     @ui.page("/", title="¿Dónde ayudo?")
     def home_page() -> None:

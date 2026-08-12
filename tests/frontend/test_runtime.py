@@ -39,6 +39,7 @@ class RuntimeTests(unittest.TestCase):
         settings.app_session_secret.get_secret_value.return_value = "synthetic-session-secret"
         settings.app_base_url = "https://dondeayudo.example/base"
         settings.session_cookie_https_only = True
+        settings.port = 4321
         database_config = MagicMock()
         session_factory = MagicMock()
         repository = MagicMock()
@@ -46,6 +47,7 @@ class RuntimeTests(unittest.TestCase):
         access_service = MagicMock()
         location_catalog = MagicMock()
         geocoder = MagicMock()
+        database_ready = MagicMock()
 
         with (
             patch.object(
@@ -54,6 +56,11 @@ class RuntimeTests(unittest.TestCase):
                 return_value=database_config,
             ) as from_url,
             patch.object(runtime, "create_session_factory", return_value=session_factory) as create_factory,
+            patch.object(
+                runtime,
+                "create_database_readiness_probe",
+                return_value=database_ready,
+            ) as create_readiness_probe,
             patch.object(runtime, "PostgresHelpPointRepository", return_value=repository) as repository_type,
             patch.object(runtime, "HelpPointService", return_value=service) as service_type,
             patch.object(runtime, "CoordinatorAccessService", return_value=access_service) as access_service_type,
@@ -72,6 +79,7 @@ class RuntimeTests(unittest.TestCase):
         settings.coordinator_access_key.get_secret_value.assert_called_once_with()
         settings.app_session_secret.get_secret_value.assert_called_once_with()
         create_factory.assert_called_once_with(database_config)
+        create_readiness_probe.assert_called_once_with(session_factory)
         repository_type.assert_called_once_with(session_factory)
         service_type.assert_called_once_with(repository, location_catalog)
         access_service_type.assert_called_once_with("synthetic-access-key")
@@ -97,6 +105,7 @@ class RuntimeTests(unittest.TestCase):
             deactivate_help_point=service.deactivate_help_point,
             authorize_coordinator_access=access_service.authorize,
             get_public_help_point=service.get_public_help_point,
+            is_database_ready=database_ready,
         )
 
     def test_build_runtime_uses_http_cookie_policy_from_settings_without_recomputing_it(self) -> None:
@@ -112,6 +121,11 @@ class RuntimeTests(unittest.TestCase):
         with (
             patch.object(runtime.DatabaseConfig, "from_url", return_value=MagicMock()),
             patch.object(runtime, "create_session_factory", return_value=MagicMock()),
+            patch.object(
+                runtime,
+                "create_database_readiness_probe",
+                return_value=MagicMock(),
+            ),
             patch.object(runtime, "PostgresHelpPointRepository", return_value=MagicMock()),
             patch.object(runtime, "HelpPointService", return_value=MagicMock()),
             patch.object(runtime, "CoordinatorAccessService", return_value=MagicMock()),
@@ -128,6 +142,7 @@ class RuntimeTests(unittest.TestCase):
         runtime = self.import_runtime()
         calls: list[str] = []
         settings = MagicMock()
+        settings.port = 4321
 
         with (
             patch.object(
@@ -149,6 +164,9 @@ class RuntimeTests(unittest.TestCase):
         settings_type.assert_called_once_with()
         build_runtime.assert_called_once_with(settings)
         ui_run.assert_called_once_with(
+            host="0.0.0.0",
+            port=4321,
+            show=False,
             reload=False,
             storage_secret="synthetic-session-secret",
             session_middleware_kwargs={"https_only": True},

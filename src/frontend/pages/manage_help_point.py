@@ -240,7 +240,8 @@ def render_manage_help_point(
                         options=list(categories), label="Agregar necesidad"
                     ).classes("w-full").props(
                         'outlined dense behavior=menu color=blue-grey-9 '
-                        'popup-content-style="max-height: 40vh; overflow-y: auto"'
+                        'popup-content-class=bounded-select-menu '
+                        'popup-content-style="max-height: 40vh !important; overflow-y: auto"'
                     )
                     ui.button(
                         "Agregar necesidad",
