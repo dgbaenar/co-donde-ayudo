@@ -1,10 +1,18 @@
 from __future__ import annotations
 
 import unittest
+from datetime import UTC, datetime
 from unittest.mock import patch
 from uuid import uuid4
 
-from backend.domain.models import HelpPointCategory, Need, NeedStatus, PublicHelpPoint
+from backend.domain.models import (
+    AffectedArea,
+    HelpPointCategory,
+    HelpPointLocation,
+    Need,
+    NeedStatus,
+    PublicHelpPoint,
+)
 from frontend.pages import help_point_detail
 
 
@@ -125,13 +133,19 @@ class HelpPointDetailTests(unittest.TestCase):
             id=uuid4(),
             name="Parque Central",
             description="Familias evacuadas reciben apoyo.",
-            city="Cali",
-            department="Valle del Cauca",
-            address="Calle 5 # 10-20",
-            affected_city="Roldanillo",
-            affected_department="Valle del Cauca",
-            latitude=3.4516,
-            longitude=-76.532,
+            locations=(
+                HelpPointLocation(
+                    id=uuid4(),
+                    address="Calle 5 # 10-20",
+                    city="Cali",
+                    department="Valle del Cauca",
+                    latitude=3.4516,
+                    longitude=-76.532,
+                ),
+            ),
+            affected_areas=(
+                AffectedArea(department="Valle del Cauca", city="Roldanillo"),
+            ),
             coordinator_name="Ana",
             coordinator_contact="Contacto",
             active=True,
@@ -152,6 +166,7 @@ class HelpPointDetailTests(unittest.TestCase):
                     status=NeedStatus.COVERED,
                 ),
             ),
+            created_at=datetime(2026, 8, 12, tzinfo=UTC),
         )
         self.categories = {
             "Agua": self.water_category_id,
@@ -230,6 +245,7 @@ class HelpPointDetailTests(unittest.TestCase):
         self.assertIn("Familias evacuadas reciben apoyo.", labels)
         self.assertIn("Coordina: Ana", labels)
         self.assertIn("Contacto: Contacto", labels)
+        self.assertIn("Publicado el 12 ago 2026", labels)
         self.assertIn("Roldanillo, Valle del Cauca", labels)
         self.assertIn("Calle 5 # 10-20, Cali, Valle del Cauca", labels)
         self.assertFalse(any(label.startswith("También:") for label in labels))
@@ -292,13 +308,8 @@ class HelpPointDetailTests(unittest.TestCase):
             id=self.point.id,
             name=self.point.name,
             description=self.point.description,
-            city=self.point.city,
-            department=self.point.department,
-            address=self.point.address,
-            affected_city=self.point.affected_city,
-            affected_department=self.point.affected_department,
-            latitude=self.point.latitude,
-            longitude=self.point.longitude,
+            locations=self.point.locations,
+            affected_areas=self.point.affected_areas,
             coordinator_name="Ana",
             coordinator_contact="Contacto",
             active=self.point.active,
@@ -337,20 +348,17 @@ class HelpPointDetailTests(unittest.TestCase):
         ]
         self.assertFalse(any(label.startswith("También:") for label in labels))
 
-    def test_affected_area_shows_whole_department_when_affected_city_is_none(
+    def test_affected_area_shows_whole_department_when_city_is_none(
         self,
     ) -> None:
         department_wide_point = PublicHelpPoint(category=HelpPointCategory.RESCUE_OPERATIONS,
             id=self.point.id,
             name=self.point.name,
             description=self.point.description,
-            city=self.point.city,
-            department=self.point.department,
-            address=self.point.address,
-            affected_city=None,
-            affected_department=self.point.affected_department,
-            latitude=self.point.latitude,
-            longitude=self.point.longitude,
+            locations=self.point.locations,
+            affected_areas=(
+                AffectedArea(department="Valle del Cauca", city=None),
+            ),
             coordinator_name="Ana",
             coordinator_contact="Contacto",
             active=self.point.active,
@@ -373,18 +381,49 @@ class HelpPointDetailTests(unittest.TestCase):
         self.assertIn("Todo el departamento de Valle del Cauca", labels)
         self.assertFalse(any("None" in label for label in labels))
 
+    def test_affected_area_lists_multiple_departments_and_groups_their_cities(
+        self,
+    ) -> None:
+        multi_area_point = PublicHelpPoint(category=HelpPointCategory.RESCUE_OPERATIONS,
+            id=self.point.id,
+            name=self.point.name,
+            description=self.point.description,
+            locations=self.point.locations,
+            affected_areas=(
+                AffectedArea(department="Chocó", city="Quibdó"),
+                AffectedArea(department="Chocó", city="Istmina"),
+                AffectedArea(department="Caldas", city=None),
+            ),
+            coordinator_name="Ana",
+            coordinator_contact="Contacto",
+            active=self.point.active,
+            needs=self.point.needs,
+        )
+
+        with patch.object(help_point_detail, "render_help_point_map"):
+            help_point_detail.render_help_point_detail_for_path(
+                str(multi_area_point.id),
+                lambda _point_id: multi_area_point,
+                self.categories,
+                self.no_op_create_commitment,
+            )
+
+        labels = [
+            element.args[0]
+            for element in self.fake_ui.elements
+            if element.kind == "label"
+        ]
+        self.assertIn(
+            "Quibdó, Istmina, Chocó; Todo el departamento de Caldas", labels
+        )
+
     def test_important_links_section_renders_each_link_when_present(self) -> None:
         point_with_links = PublicHelpPoint(category=HelpPointCategory.RESCUE_OPERATIONS,
             id=self.point.id,
             name=self.point.name,
             description=self.point.description,
-            city=self.point.city,
-            department=self.point.department,
-            address=self.point.address,
-            affected_city=self.point.affected_city,
-            affected_department=self.point.affected_department,
-            latitude=self.point.latitude,
-            longitude=self.point.longitude,
+            locations=self.point.locations,
+            affected_areas=self.point.affected_areas,
             coordinator_name="Ana",
             coordinator_contact="Contacto",
             active=self.point.active,
@@ -481,13 +520,19 @@ class VoyAAyudarDialogTests(unittest.TestCase):
             id=uuid4(),
             name="Parque Central",
             description="Familias evacuadas reciben apoyo.",
-            city="Cali",
-            department="Valle del Cauca",
-            address="Calle 5 # 10-20",
-            affected_city="Roldanillo",
-            affected_department="Valle del Cauca",
-            latitude=3.4516,
-            longitude=-76.532,
+            locations=(
+                HelpPointLocation(
+                    id=uuid4(),
+                    address="Calle 5 # 10-20",
+                    city="Cali",
+                    department="Valle del Cauca",
+                    latitude=3.4516,
+                    longitude=-76.532,
+                ),
+            ),
+            affected_areas=(
+                AffectedArea(department="Valle del Cauca", city="Roldanillo"),
+            ),
             coordinator_name="Ana",
             coordinator_contact="Contacto",
             active=True,

@@ -1,11 +1,19 @@
 from __future__ import annotations
 
 import unittest
+from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import patch
 from uuid import uuid4
 
-from backend.domain.models import HelpPointCategory, Need, NeedStatus, PublicHelpPoint
+from backend.domain.models import (
+    AffectedArea,
+    HelpPointCategory,
+    HelpPointLocation,
+    Need,
+    NeedStatus,
+    PublicHelpPoint,
+)
 from frontend.pages import home
 from frontend.pages.home import (
     affected_area_text,
@@ -133,8 +141,9 @@ class PublicHelpPointFilteringTests(unittest.TestCase):
             name="Parque Central",
             city="Cali",
             department="Valle del Cauca",
-            affected_city="Roldanillo",
-            affected_department="Valle del Cauca",
+            affected_areas=(
+                AffectedArea(department="Valle del Cauca", city="Roldanillo"),
+            ),
             active=True,
             category_id=self.water_id,
         )
@@ -142,8 +151,7 @@ class PublicHelpPointFilteringTests(unittest.TestCase):
             name="Albergue Norte",
             city="Medellín",
             department="Antioquia",
-            affected_city="Armenia",
-            affected_department="Quindío",
+            affected_areas=(AffectedArea(department="Quindío", city="Armenia"),),
             active=True,
             category_id=self.blanket_id,
         )
@@ -151,12 +159,29 @@ class PublicHelpPointFilteringTests(unittest.TestCase):
             name="Punto cerrado",
             city="Cali",
             department="Valle del Cauca",
-            affected_city="Palmira",
-            affected_department="Valle del Cauca",
+            affected_areas=(
+                AffectedArea(department="Valle del Cauca", city="Palmira"),
+            ),
             active=False,
             category_id=self.water_id,
         )
-        self.points = (self.cali_water, self.medellin_blanket, self.inactive)
+        self.multi_area = self.point(
+            name="Punto multizona",
+            city="Cali",
+            department="Valle del Cauca",
+            affected_areas=(
+                AffectedArea(department="Chocó", city="Quibdó"),
+                AffectedArea(department="Caldas", city=None),
+            ),
+            active=True,
+            category_id=self.water_id,
+        )
+        self.points = (
+            self.cali_water,
+            self.medellin_blanket,
+            self.inactive,
+            self.multi_area,
+        )
 
     @staticmethod
     def point(
@@ -164,8 +189,7 @@ class PublicHelpPointFilteringTests(unittest.TestCase):
         name: str,
         city: str,
         department: str,
-        affected_city: str,
-        affected_department: str,
+        affected_areas: tuple[AffectedArea, ...],
         active: bool,
         category_id,
     ) -> PublicHelpPoint:
@@ -173,13 +197,17 @@ class PublicHelpPointFilteringTests(unittest.TestCase):
             id=uuid4(),
             name=name,
             description="Se requiere apoyo.",
-            city=city,
-            department=department,
-            address="Calle 5 # 10-20",
-            affected_city=affected_city,
-            affected_department=affected_department,
-            latitude=3.0,
-            longitude=-76.0,
+            locations=(
+                HelpPointLocation(
+                    id=uuid4(),
+                    address="Calle 5 # 10-20",
+                    city=city,
+                    department=department,
+                    latitude=3.0,
+                    longitude=-76.0,
+                ),
+            ),
+            affected_areas=affected_areas,
             coordinator_name="Ana",
             coordinator_contact="Contacto",
             active=active,
@@ -189,14 +217,35 @@ class PublicHelpPointFilteringTests(unittest.TestCase):
     def test_without_filters_lists_only_active_points(self) -> None:
         filtered = filter_public_help_points(self.points)
 
-        self.assertEqual(filtered, (self.cali_water, self.medellin_blanket))
+        self.assertEqual(
+            filtered, (self.cali_water, self.medellin_blanket, self.multi_area)
+        )
+
+    def test_department_filter_matches_point_via_any_of_its_areas(self) -> None:
+        self.assertEqual(
+            filter_public_help_points(self.points, department="Chocó"),
+            (self.multi_area,),
+        )
+        self.assertEqual(
+            filter_public_help_points(self.points, department="Caldas"),
+            (self.multi_area,),
+        )
+
+    def test_city_filter_matches_point_via_any_of_its_areas(self) -> None:
+        self.assertEqual(
+            filter_public_help_points(self.points, city="Quibdó"),
+            (self.multi_area,),
+        )
 
     def test_filters_destination_while_map_coordinates_stay_physical(self) -> None:
         self.assertEqual(
             filter_public_help_points(self.points, city="Roldanillo"),
             (self.cali_water,),
         )
-        self.assertEqual((self.cali_water.latitude, self.cali_water.longitude), (3.0, -76.0))
+        self.assertEqual(
+            (self.cali_water.locations[0].latitude, self.cali_water.locations[0].longitude),
+            (3.0, -76.0),
+        )
 
     def test_location_filter_options_come_from_injected_catalog(self) -> None:
         self.assertEqual(
@@ -226,18 +275,22 @@ class PublicHelpPointFilteringTests(unittest.TestCase):
 
 class AffectedAreaTextTests(unittest.TestCase):
     @staticmethod
-    def point(*, affected_city: str | None) -> PublicHelpPoint:
+    def point(*, affected_areas: tuple[AffectedArea, ...]) -> PublicHelpPoint:
         return PublicHelpPoint(category=HelpPointCategory.RESCUE_OPERATIONS,
             id=uuid4(),
             name="Parque Central",
             description="Se requiere apoyo.",
-            city="Cali",
-            department="Valle del Cauca",
-            address="Calle 5 # 10-20",
-            affected_city=affected_city,
-            affected_department="Valle del Cauca",
-            latitude=3.0,
-            longitude=-76.0,
+            locations=(
+                HelpPointLocation(
+                    id=uuid4(),
+                    address="Calle 5 # 10-20",
+                    city="Cali",
+                    department="Valle del Cauca",
+                    latitude=3.0,
+                    longitude=-76.0,
+                ),
+            ),
+            affected_areas=affected_areas,
             coordinator_name="Ana",
             coordinator_contact="Contacto",
             active=True,
@@ -246,14 +299,41 @@ class AffectedAreaTextTests(unittest.TestCase):
 
     def test_uses_city_and_department_when_city_is_set(self) -> None:
         self.assertEqual(
-            affected_area_text(self.point(affected_city="Roldanillo")),
+            affected_area_text(
+                self.point(
+                    affected_areas=(
+                        AffectedArea(department="Valle del Cauca", city="Roldanillo"),
+                    )
+                )
+            ),
             "Roldanillo, Valle del Cauca",
         )
 
     def test_falls_back_to_whole_department_when_city_is_none(self) -> None:
         self.assertEqual(
-            affected_area_text(self.point(affected_city=None)),
+            affected_area_text(
+                self.point(
+                    affected_areas=(
+                        AffectedArea(department="Valle del Cauca", city=None),
+                    )
+                )
+            ),
             "Todo el departamento de Valle del Cauca",
+        )
+
+    def test_lists_multiple_departments_and_groups_cities_within_one(self) -> None:
+        text = affected_area_text(
+            self.point(
+                affected_areas=(
+                    AffectedArea(department="Chocó", city="Quibdó"),
+                    AffectedArea(department="Chocó", city="Istmina"),
+                    AffectedArea(department="Caldas", city=None),
+                )
+            )
+        )
+
+        self.assertEqual(
+            text, "Quibdó, Istmina, Chocó; Todo el departamento de Caldas"
         )
 
 
@@ -480,17 +560,30 @@ class HomeResponsivePresentationTests(unittest.TestCase):
     def test_initial_map_and_compact_list_use_active_points_and_public_detail_links(self) -> None:
         category_id = uuid4()
         active = PublicHelpPoint(category=HelpPointCategory.RESCUE_OPERATIONS,
-            id=uuid4(), name="Parque", description="Apoyo", city="Cali",
-            department="Valle del Cauca", address="Calle 5 # 10-20",
-            affected_city="Roldanillo", affected_department="Valle del Cauca",
-            latitude=3.4, longitude=-76.5, coordinator_name="Ana", coordinator_contact="Contacto", active=True,
+            id=uuid4(), name="Parque", description="Apoyo",
+            locations=(
+                HelpPointLocation(
+                    id=uuid4(), address="Calle 5 # 10-20", city="Cali",
+                    department="Valle del Cauca", latitude=3.4, longitude=-76.5,
+                ),
+            ),
+            affected_areas=(
+                AffectedArea(department="Valle del Cauca", city="Roldanillo"),
+            ),
+            coordinator_name="Ana", coordinator_contact="Contacto", active=True,
             needs=(Need(id=uuid4(), category_id=category_id, status=NeedStatus.NEEDS_HELP),),
+            created_at=datetime(2026, 8, 12, tzinfo=UTC),
         )
         inactive = PublicHelpPoint(category=HelpPointCategory.RESCUE_OPERATIONS,
-            id=uuid4(), name="Cerrado", description="Cerrado", city="Bogotá",
-            department="Cundinamarca", address=None,
-            affected_city="Armenia", affected_department="Quindío",
-            latitude=4.6, longitude=-74.1, coordinator_name="Ana", coordinator_contact="Contacto", active=False,
+            id=uuid4(), name="Cerrado", description="Cerrado",
+            locations=(
+                HelpPointLocation(
+                    id=uuid4(), address=None, city="Bogotá",
+                    department="Cundinamarca", latitude=4.6, longitude=-74.1,
+                ),
+            ),
+            affected_areas=(AffectedArea(department="Quindío", city="Armenia"),),
+            coordinator_name="Ana", coordinator_contact="Contacto", active=False,
             needs=(),
         )
         fake_ui = RecordingUi()
@@ -527,14 +620,20 @@ class HomeResponsivePresentationTests(unittest.TestCase):
             labels,
         )
         self.assertIn("Labores de rescate", labels)
+        self.assertIn("Publicado el 12 ago 2026", labels)
 
-    def test_result_row_shows_whole_department_when_affected_city_is_none(self) -> None:
+    def test_result_row_shows_whole_department_when_city_is_none(self) -> None:
         category_id = uuid4()
         department_wide = PublicHelpPoint(category=HelpPointCategory.RESCUE_OPERATIONS,
-            id=uuid4(), name="Parque", description="Apoyo", city="Cali",
-            department="Valle del Cauca", address="Calle 5 # 10-20",
-            affected_city=None, affected_department="Valle del Cauca",
-            latitude=3.4, longitude=-76.5, coordinator_name="Ana", coordinator_contact="Contacto", active=True,
+            id=uuid4(), name="Parque", description="Apoyo",
+            locations=(
+                HelpPointLocation(
+                    id=uuid4(), address="Calle 5 # 10-20", city="Cali",
+                    department="Valle del Cauca", latitude=3.4, longitude=-76.5,
+                ),
+            ),
+            affected_areas=(AffectedArea(department="Valle del Cauca", city=None),),
+            coordinator_name="Ana", coordinator_contact="Contacto", active=True,
             needs=(Need(id=uuid4(), category_id=category_id, status=NeedStatus.NEEDS_HELP),),
         )
         fake_ui = RecordingUi()
@@ -556,6 +655,50 @@ class HomeResponsivePresentationTests(unittest.TestCase):
             "Ayuda destinada a: Todo el departamento de Valle del Cauca", labels
         )
         self.assertFalse(any("None" in label for label in labels))
+
+    def test_result_card_lists_every_location(self) -> None:
+        category_id = uuid4()
+        multi = PublicHelpPoint(category=HelpPointCategory.RESCUE_OPERATIONS,
+            id=uuid4(), name="Parque", description="Apoyo",
+            locations=(
+                HelpPointLocation(
+                    id=uuid4(), address="Calle 5 # 10-20", city="Cali",
+                    department="Valle del Cauca", latitude=3.4, longitude=-76.5,
+                ),
+                HelpPointLocation(
+                    id=uuid4(), address="Carrera 9 # 3-12", city="Palmira",
+                    department="Valle del Cauca", latitude=3.5, longitude=-76.3,
+                ),
+            ),
+            affected_areas=(
+                AffectedArea(department="Valle del Cauca", city="Roldanillo"),
+            ),
+            coordinator_name="Ana", coordinator_contact="Contacto", active=True,
+            needs=(Need(id=uuid4(), category_id=category_id, status=NeedStatus.NEEDS_HELP),),
+        )
+        fake_ui = RecordingUi()
+        original_ui = home.ui
+        home.ui = fake_ui
+        try:
+            with patch.object(home, "render_help_point_map"):
+                home.render_home(
+                    (multi,),
+                    {"Agua": category_id},
+                    lambda: AFFECTED_DEPARTMENTS,
+                    list_localities,
+                )
+        finally:
+            home.ui = original_ui
+
+        labels = [element.args[0] for element in fake_ui.elements if element.kind == "label"]
+        self.assertEqual(
+            labels.count("Recibe ayuda en: Calle 5 # 10-20, Cali, Valle del Cauca"),
+            1,
+        )
+        self.assertEqual(
+            labels.count("Recibe ayuda en: Carrera 9 # 3-12, Palmira, Valle del Cauca"),
+            1,
+        )
 
     def test_department_change_replaces_city_options_and_refreshes_map_immediately(self) -> None:
         fake_ui = RecordingUi()
@@ -619,10 +762,17 @@ class HomeResponsivePresentationTests(unittest.TestCase):
         ]
         category_ids = [uuid4() for _ in need_specs]
         point = PublicHelpPoint(category=HelpPointCategory.RESCUE_OPERATIONS,
-            id=uuid4(), name="Parque", description="Apoyo", city="Cali",
-            department="Valle del Cauca", address="Calle 5 # 10-20",
-            affected_city="Roldanillo", affected_department="Valle del Cauca",
-            latitude=3.4, longitude=-76.5, coordinator_name="Ana", coordinator_contact="Contacto", active=True,
+            id=uuid4(), name="Parque", description="Apoyo",
+            locations=(
+                HelpPointLocation(
+                    id=uuid4(), address="Calle 5 # 10-20", city="Cali",
+                    department="Valle del Cauca", latitude=3.4, longitude=-76.5,
+                ),
+            ),
+            affected_areas=(
+                AffectedArea(department="Valle del Cauca", city="Roldanillo"),
+            ),
+            coordinator_name="Ana", coordinator_contact="Contacto", active=True,
             needs=tuple(Need(id=uuid4(), category_id=category_id, status=status)
                         for category_id, (_, status) in zip(category_ids, need_specs)),
         )
@@ -686,11 +836,19 @@ class HomeResponsivePresentationTests(unittest.TestCase):
 
         def point(name, city, department, affected_city, affected_department):
             return PublicHelpPoint(category=HelpPointCategory.RESCUE_OPERATIONS,
-                id=uuid4(), name=name, description="Apoyo", city=city,
-                department=department, address="Calle 5",
-                affected_city=affected_city,
-                affected_department=affected_department,
-                latitude=4.0, longitude=-75.0, coordinator_name="Ana", coordinator_contact="Contacto", active=True,
+                id=uuid4(), name=name, description="Apoyo",
+                locations=(
+                    HelpPointLocation(
+                        id=uuid4(), address="Calle 5", city=city,
+                        department=department, latitude=4.0, longitude=-75.0,
+                    ),
+                ),
+                affected_areas=(
+                    AffectedArea(
+                        department=affected_department, city=affected_city
+                    ),
+                ),
+                coordinator_name="Ana", coordinator_contact="Contacto", active=True,
                 needs=(Need(id=uuid4(), category_id=category_id, status=NeedStatus.NEEDS_HELP),),
             )
 

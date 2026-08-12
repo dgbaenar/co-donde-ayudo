@@ -37,16 +37,36 @@ def validate_optional(value: str | None, field: str, maximum: int) -> None:
 
 
 @dataclass(frozen=True, slots=True)
+class HelpPointLocation:
+    id: UUID
+    address: str | None
+    city: str
+    department: str
+    latitude: float
+    longitude: float
+
+
+@dataclass(frozen=True, slots=True)
+class NewHelpPointLocation:
+    address: str
+    city: str
+    department: str
+    latitude: float
+    longitude: float
+
+
+@dataclass(frozen=True, slots=True)
+class AffectedArea:
+    department: str
+    city: str | None
+
+
+@dataclass(frozen=True, slots=True)
 class CreateHelpPoint:
     name: str
     description: str
-    city: str
-    department: str
-    address: str
-    affected_city: str | None
-    affected_department: str
-    latitude: float
-    longitude: float
+    affected_areas: tuple[AffectedArea, ...]
+    locations: tuple[NewHelpPointLocation, ...]
     coordinator_name: str
     coordinator_contact: str
     category_ids: tuple[UUID, ...]
@@ -58,26 +78,37 @@ class CreateHelpPoint:
         for value, field, maximum in (
             (self.name, "name", 120),
             (self.description, "description", 5_000),
-            (self.city, "city", 120),
-            (self.department, "department", 120),
-            (self.address, "address", 240),
-            (self.affected_department, "affected_department", 120),
             (self.coordinator_name, "coordinator_name", 120),
             (self.coordinator_contact, "coordinator_contact", 240),
         ):
             validate_required(value, field, maximum)
-        validate_optional(self.affected_city, "affected_city", 120)
         validate_optional(self.additional_affected_areas, "additional_affected_areas", 500)
+        if not self.affected_areas:
+            raise ValueError("at least one affected area is required")
+        for area in self.affected_areas:
+            validate_required(area.department, "affected_department", 120)
+            validate_optional(area.city, "affected_city", 120)
+        pairs = tuple((area.department, area.city) for area in self.affected_areas)
+        if len(set(pairs)) != len(pairs):
+            raise ValueError("affected areas must be unique")
         for link in self.important_links:
             stripped = link.strip()
             if not stripped.startswith(("http://", "https://")):
                 raise ValueError("important_links must start with http:// or https://")
             if not 1 <= len(stripped) <= 500:
                 raise ValueError("important_links must be between 1 and 500 characters")
-        if not -90 <= self.latitude <= 90:
-            raise ValueError("latitude must be between -90 and 90")
-        if not -180 <= self.longitude <= 180:
-            raise ValueError("longitude must be between -180 and 180")
+        if not self.important_links:
+            raise ValueError("at least one important link is required")
+        if not self.locations:
+            raise ValueError("at least one location is required")
+        for location in self.locations:
+            validate_required(location.address, "address", 240)
+            validate_required(location.city, "city", 120)
+            validate_required(location.department, "department", 120)
+            if not -90 <= location.latitude <= 90:
+                raise ValueError("latitude must be between -90 and 90")
+            if not -180 <= location.longitude <= 180:
+                raise ValueError("longitude must be between -180 and 180")
         if not self.category_ids:
             raise ValueError("at least one category is required")
         if len(set(self.category_ids)) != len(self.category_ids):
@@ -110,19 +141,15 @@ class HelpPoint:
     id: UUID
     name: str
     description: str
-    city: str
-    department: str
-    address: str | None
-    affected_city: str | None
-    affected_department: str
-    latitude: float
-    longitude: float
+    affected_areas: tuple[AffectedArea, ...]
+    locations: tuple[HelpPointLocation, ...]
     coordinator_name: str
     coordinator_contact: str
     admin_token: str
     active: bool
     needs: tuple[Need, ...]
     category: HelpPointCategory
+    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     additional_affected_areas: str | None = None
     important_links: tuple[str, ...] = ()
@@ -133,18 +160,14 @@ class PublicHelpPoint:
     id: UUID
     name: str
     description: str
-    city: str
-    department: str
-    address: str | None
-    affected_city: str | None
-    affected_department: str
-    latitude: float
-    longitude: float
+    affected_areas: tuple[AffectedArea, ...]
+    locations: tuple[HelpPointLocation, ...]
     coordinator_name: str
     coordinator_contact: str
     active: bool
     needs: tuple[Need, ...]
     category: HelpPointCategory
+    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     additional_affected_areas: str | None = None
     important_links: tuple[str, ...] = ()

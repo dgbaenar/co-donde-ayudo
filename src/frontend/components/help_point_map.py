@@ -3,15 +3,30 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from datetime import datetime
 from html import escape
 from uuid import UUID
 
 from nicegui import ui
 
-from backend.domain.models import NeedStatus, PublicHelpPoint
-
+from backend.domain.models import (
+    AffectedArea,
+    HelpPointLocation,
+    NeedStatus,
+    PublicHelpPoint,
+)
 
 COLOMBIA_CENTER = (4.5709, -74.2973)
+
+_SHORT_MONTHS = (
+    "ene", "feb", "mar", "abr", "may", "jun",
+    "jul", "ago", "sep", "oct", "nov", "dic",
+)
+
+
+def format_short_date(value: datetime) -> str:
+    """Format a date as "12 ago 2026", for compact publication/update labels."""
+    return f"{value.day} {_SHORT_MONTHS[value.month - 1]} {value.year}"
 
 _STATUS_EMOJI = {
     NeedStatus.NEEDS_HELP: "🔴",
@@ -28,9 +43,32 @@ def status_line(status: NeedStatus, name: str) -> str:
     return f"{_STATUS_EMOJI[status]} {name}{_STATUS_SUFFIX.get(status, '')}"
 
 
+def describe_affected_areas(areas: Sequence[AffectedArea]) -> str:
+    """Group affected areas by department into one readable, joined line."""
+    departments_in_order: list[str] = []
+    cities_by_department: dict[str, list[str]] = {}
+    whole_department: set[str] = set()
+    for area in areas:
+        if area.department not in cities_by_department:
+            cities_by_department[area.department] = []
+            departments_in_order.append(area.department)
+        if area.city is None:
+            whole_department.add(area.department)
+        else:
+            cities_by_department[area.department].append(area.city)
+    parts = [
+        f"Todo el departamento de {department}"
+        if department in whole_department
+        else f"{', '.join(cities_by_department[department])}, {department}"
+        for department in departments_in_order
+    ]
+    return "; ".join(parts)
+
+
 def build_popup_html(
     point: PublicHelpPoint,
     categories: Mapping[str, UUID],
+    location: HelpPointLocation,
 ) -> str:
     """Build a popup after escaping every dynamic value."""
     category_names = {category_id: name for name, category_id in categories.items()}
@@ -40,13 +78,9 @@ def build_popup_html(
         "</li>"
         for need in point.needs
     )
-    affected_location = (
-        f"Todo el departamento de {point.affected_department}"
-        if point.affected_city is None
-        else f"{point.affected_city}, {point.affected_department}"
-    )
+    affected_location = describe_affected_areas(point.affected_areas)
     reception_location = ", ".join(
-        value for value in (point.address, point.city, point.department) if value
+        value for value in (location.address, location.city, location.department) if value
     )
     return (
         f"<strong>{escape(point.name)}</strong>"
@@ -72,8 +106,13 @@ def render_help_point_map(
     for point in points:
         if not point.active:
             continue
-        marker = map_element.marker(latlng=(point.latitude, point.longitude))
-        marker_popups.append((marker, build_popup_html(point, categories)))
+        for location in point.locations:
+            marker = map_element.marker(
+                latlng=(location.latitude, location.longitude)
+            )
+            marker_popups.append(
+                (marker, build_popup_html(point, categories, location))
+            )
 
     def bind_popups() -> None:
         for marker, popup_html in marker_popups:

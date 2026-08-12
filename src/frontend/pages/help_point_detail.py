@@ -2,15 +2,20 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
-import logging
 from uuid import UUID
 
 from nicegui import ui
 
 from backend.domain.models import Need, NeedStatus, PublicHelpPoint
-from frontend.components.help_point_map import render_help_point_map, status_line
+from frontend.components.help_point_map import (
+    describe_affected_areas,
+    format_short_date,
+    render_help_point_map,
+    status_line,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +43,7 @@ def commitment_count_text(count: int) -> str | None:
     return f"{count} personas confirmaron ayuda"
 
 
-def _render_updated_at(updated_at: datetime) -> None:
+def render_updated_at(updated_at: datetime) -> None:
     """Show a relative or absolute last-updated timestamp."""
     now = datetime.now(UTC)
     delta = now - updated_at
@@ -153,9 +158,6 @@ def render_help_point_detail(
         return
 
     category_names = {category_id: name for name, category_id in categories.items()}
-    reception_location = ", ".join(
-        value for value in (point.address, point.city, point.department) if value
-    )
     with ui.column().classes("w-full min-h-screen bg-slate-50"):
         with ui.column().classes("w-full max-w-4xl mx-auto gap-4 p-4 md:p-6"):
             ui.link("Volver al mapa", "/").classes(
@@ -180,7 +182,10 @@ def render_help_point_detail(
                     ui.label(f"Contacto: {point.coordinator_contact}").classes(
                         "text-base text-slate-700"
                     )
-                _render_updated_at(point.updated_at)
+                ui.label(f"Publicado el {format_short_date(point.created_at)}").classes(
+                    "text-xs text-slate-400 mt-1"
+                )
+                render_updated_at(point.updated_at)
 
             with ui.grid().classes("w-full grid-cols-1 md:grid-cols-2 gap-3"):
                 with ui.column().classes(
@@ -189,11 +194,7 @@ def render_help_point_detail(
                     ui.label("Ayuda destinada a").classes(
                         "text-lg font-semibold text-slate-900"
                     ).props("role=heading aria-level=2")
-                    affected_area = (
-                        f"{point.affected_city}, {point.affected_department}"
-                        if point.affected_city
-                        else f"Todo el departamento de {point.affected_department}"
-                    )
+                    affected_area = describe_affected_areas(point.affected_areas)
                     ui.label(affected_area).classes("text-slate-700")
                     if point.additional_affected_areas:
                         ui.label(
@@ -206,7 +207,17 @@ def render_help_point_detail(
                     ui.label("Recibe ayuda en").classes(
                         "text-lg font-semibold text-slate-900"
                     ).props("role=heading aria-level=2")
-                    ui.label(reception_location).classes("text-slate-700")
+                    for location in point.locations:
+                        reception_location = ", ".join(
+                            value
+                            for value in (
+                                location.address,
+                                location.city,
+                                location.department,
+                            )
+                            if value
+                        )
+                        ui.label(reception_location).classes("text-slate-700")
 
             with ui.column().classes(
                 "w-full gap-3 rounded-2xl border border-slate-200 bg-white p-4 md:p-6"
@@ -300,9 +311,10 @@ def render_help_point_detail(
                 ui.label("Ubicación del punto de recepción").classes(
                     "text-lg font-semibold text-slate-900"
                 ).props("role=heading aria-level=2")
+                first_location = point.locations[0]
                 render_help_point_map(
                     (point,),
                     categories,
-                    center=(point.latitude, point.longitude),
+                    center=(first_location.latitude, first_location.longitude),
                     zoom=15,
                 )

@@ -8,8 +8,12 @@ from uuid import UUID
 from nicegui import ui
 
 from backend.domain.models import PublicHelpPoint
-from frontend.components.help_point_map import render_help_point_map, status_line
-
+from frontend.components.help_point_map import (
+    describe_affected_areas,
+    format_short_date,
+    render_help_point_map,
+    status_line,
+)
 
 ListDepartments = Callable[[], Sequence[str]]
 ListLocalities = Callable[[str], Sequence[str]]
@@ -26,16 +30,20 @@ def filter_public_help_points(
         point
         for point in points
         if point.active
-        and (not city or point.affected_city == city)
-        and (not department or point.affected_department == department)
+        and (
+            not city
+            or any(area.city == city for area in point.affected_areas)
+        )
+        and (
+            not department
+            or any(area.department == department for area in point.affected_areas)
+        )
     )
 
 
 def affected_area_text(point: PublicHelpPoint) -> str:
-    """Describe the affected area, falling back to the whole department."""
-    if point.affected_city:
-        return f"{point.affected_city}, {point.affected_department}"
-    return f"Todo el departamento de {point.affected_department}"
+    """Describe every affected area, grouped by department."""
+    return describe_affected_areas(point.affected_areas)
 
 
 def location_filter_options(
@@ -134,14 +142,19 @@ def render_home(
                             ).classes(
                                 "text-xs text-slate-500"
                             )
-                            reception_location = ", ".join(
-                                value
-                                for value in (point.address, point.city, point.department)
-                                if value
-                            )
-                            ui.label(
-                                f"Recibe ayuda en: {reception_location}"
-                            ).classes("text-xs text-slate-500")
+                            for location in point.locations:
+                                reception_location = ", ".join(
+                                    value
+                                    for value in (
+                                        location.address,
+                                        location.city,
+                                        location.department,
+                                    )
+                                    if value
+                                )
+                                ui.label(
+                                    f"Recibe ayuda en: {reception_location}"
+                                ).classes("text-xs text-slate-500")
                             ui.label(point.description).classes(
                                 "text-sm text-slate-700 line-clamp-2"
                             )
@@ -158,9 +171,13 @@ def render_home(
                                     ui.label(f"+{remaining_needs} necesidades").classes(
                                         "text-xs text-slate-500"
                                     )
-                        ui.icon("chevron_right").classes(
-                            "text-emerald-700 mt-1"
-                        ).props("aria-hidden=true")
+                        with ui.column().classes("items-end gap-1 shrink-0"):
+                            ui.label(
+                                f"Publicado el {format_short_date(point.created_at)}"
+                            ).classes("text-xs text-slate-400 whitespace-nowrap")
+                            ui.icon("chevron_right").classes(
+                                "text-emerald-700"
+                            ).props("aria-hidden=true")
 
     def change_department() -> None:
         selected_department = department.value or ""
