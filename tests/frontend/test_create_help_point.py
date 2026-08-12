@@ -464,7 +464,15 @@ class CreateHelpPointResponsivePresentationTests(unittest.TestCase):
                 for element in fields
             )
         )
-        self.assertTrue(all("w-full" in element.classes_value for element in fields))
+        full_width_fields = [
+            element for element in fields if element.args and element.args[0] != "+ Agregar otra necesidad"
+        ]
+        self.assertTrue(full_width_fields)
+        self.assertTrue(all("w-full" in element.classes_value for element in full_width_fields))
+        custom_category_name = next(
+            element for element in fields if element.args and element.args[0] == "+ Agregar otra necesidad"
+        )
+        self.assertIn("flex-1", custom_category_name.classes_value)
         self.assertIn("w-full min-h-[44px]", next(element for element in fake_ui.elements if element.kind == "button").classes_value)
         affected_department = next(
             element
