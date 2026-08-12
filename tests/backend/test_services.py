@@ -48,10 +48,14 @@ class FakeRepository:
         return self.custom_category_id
 
     def create_commitment(self, need_id, name, note):
+        point = self.point_by_need_id
+        need = next((n for n in point.needs if n.id == need_id), None) if point else None
+        if need is None:
+            raise KeyError(need_id)
+        if need.status is NeedStatus.COVERED:
+            raise ValueError("need is already covered")
         self.created_commitment_args = (need_id, name, note)
-        if self.commitment_to_return is not None:
-            return self.commitment_to_return
-        return Commitment(
+        commitment = self.commitment_to_return or Commitment(
             id=uuid4(),
             need_id=need_id,
             name=name,
@@ -59,6 +63,25 @@ class FakeRepository:
             active=True,
             created_at=datetime(2026, 8, 11, tzinfo=UTC),
         )
+        commitments = (*need.commitments, commitment)
+        updated_need = dataclasses.replace(
+            need,
+            commitments=commitments,
+            active_commitment_count=sum(1 for c in commitments if c.active),
+        )
+        transitioned = need.status is NeedStatus.NEEDS_HELP
+        if transitioned:
+            updated_need = dataclasses.replace(
+                updated_need, status=NeedStatus.HELP_ON_THE_WAY
+            )
+        updated_point = dataclasses.replace(
+            point,
+            needs=tuple(updated_need if n.id == need_id else n for n in point.needs),
+        )
+        self.point_by_need_id = updated_point
+        if transitioned:
+            self.updated = updated_point
+        return commitment
 
 
 class FakeLocationCatalog:

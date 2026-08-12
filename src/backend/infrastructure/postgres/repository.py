@@ -66,6 +66,11 @@ class PostgresHelpPointRepository:
     def create_commitment(self, need_id: UUID, name: str, note: str | None) -> Commitment:
         with self._session_factory() as session:
             with session.begin():
+                need_row = session.get(NeedRow, need_id, with_for_update=True)
+                if need_row is None:
+                    raise KeyError(need_id)
+                if need_row.estado == NeedStatus.COVERED.value:
+                    raise ValueError("need is already covered")
                 row = CommitmentRow(
                     id=uuid4(),
                     need_id=need_id,
@@ -75,6 +80,12 @@ class PostgresHelpPointRepository:
                     created_at=datetime.now(UTC),
                 )
                 session.add(row)
+                if need_row.estado == NeedStatus.NEEDS_HELP.value:
+                    # Locking the need row above serializes this against a concurrent
+                    # change_need_status(COVERED): either that transaction commits first
+                    # (and our check above sees COVERED and raises), or ours commits first
+                    # and theirs waits, blocked on the same row, until we're done.
+                    need_row.estado = NeedStatus.HELP_ON_THE_WAY.value
             return Commitment(
                 id=row.id,
                 need_id=row.need_id,

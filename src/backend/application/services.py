@@ -161,32 +161,27 @@ class HelpPointService:
         point = self._repository.get_help_point_by_need_id(need_id)
         if point is None or not point.active:
             raise ValueError("need not found")
-        need = next((n for n in point.needs if n.id == need_id), None)
-        if need is None:
+        if not any(n.id == need_id for n in point.needs):
             raise ValueError("need not found")
-        if need.status is NeedStatus.COVERED:
-            raise ValueError("need is already covered")
         normalized_name = name.strip()
         validate_required(normalized_name, "name", 120)
         normalized_note = (note or "").strip() or None
         if normalized_note is not None:
             validate_optional(normalized_note, "note", 500)
-        commitment = self._repository.create_commitment(need_id, normalized_name, normalized_note)
-        commitments = (*need.commitments, commitment)
-        updated_need = replace(
-            need,
-            commitments=commitments,
-            active_commitment_count=sum(1 for c in commitments if c.active),
-        )
-        if need.status is NeedStatus.NEEDS_HELP:
-            # A commitment on a NEEDS_HELP need is a fact, not a judgment call: reporting that
-            # someone committed to help automatically moves the need to HELP_ON_THE_WAY.
-            # HELP_ON_THE_WAY -> COVERED remains coordinator-exclusive via change_need_status.
-            updated_need = replace(updated_need, status=NeedStatus.HELP_ON_THE_WAY)
-            needs = tuple(
-                updated_need if n.id == need_id else n for n in point.needs
-            )
-            self._repository.update_help_point(replace(point, needs=needs))
+        # The "already covered" check and the NEEDS_HELP -> HELP_ON_THE_WAY transition
+        # happen atomically inside the repository call (single transaction, row lock),
+        # not here: a check-then-act split across two separate transactions would leave
+        # a window where a commitment could land on a need the coordinator just covered.
+        try:
+            self._repository.create_commitment(need_id, normalized_name, normalized_note)
+        except KeyError as error:
+            raise ValueError("need not found") from error
+        refreshed_point = self._repository.get_help_point_by_need_id(need_id)
+        if refreshed_point is None:
+            raise ValueError("need not found")
+        updated_need = next((n for n in refreshed_point.needs if n.id == need_id), None)
+        if updated_need is None:
+            raise ValueError("need not found")
         return updated_need
 
     def update_help_point_info(

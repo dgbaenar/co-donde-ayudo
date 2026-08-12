@@ -16,6 +16,7 @@ class Session:
         self.deleted: list[object] = []
         self.rows: dict[UUID, HelpPointRow] = {}
         self.need_rows: dict[UUID, NeedRow] = {}
+        self.locked_for_update: dict[UUID, bool] = {}
 
     def __enter__(self):
         return self
@@ -35,8 +36,9 @@ class Session:
     def flush(self) -> None:
         return None
 
-    def get(self, model, key):
+    def get(self, model, key, with_for_update=False):
         if model is NeedRow:
+            self.locked_for_update[key] = with_for_update
             return self.need_rows.get(key)
         return self.rows.get(key)
 
@@ -206,6 +208,9 @@ class RepositoryTests(unittest.TestCase):
     def test_create_commitment_inserts_row_and_returns_domain_commitment(self) -> None:
         session = Session()
         need_id = uuid4()
+        session.need_rows[need_id] = NeedRow(
+            id=need_id, help_point_id=uuid4(), category_id=uuid4(), estado="NEEDS_HELP"
+        )
 
         result = PostgresHelpPointRepository(Factory(session)).create_commitment(
             need_id, "Ana", "Voy para allá."
@@ -230,6 +235,9 @@ class RepositoryTests(unittest.TestCase):
     def test_create_commitment_accepts_missing_note(self) -> None:
         session = Session()
         need_id = uuid4()
+        session.need_rows[need_id] = NeedRow(
+            id=need_id, help_point_id=uuid4(), category_id=uuid4(), estado="NEEDS_HELP"
+        )
 
         result = PostgresHelpPointRepository(Factory(session)).create_commitment(
             need_id, "Ana", None
@@ -237,6 +245,60 @@ class RepositoryTests(unittest.TestCase):
 
         self.assertIsNone(result.note)
         self.assertIsNone(session.added[0].nota)
+
+    def test_create_commitment_rejects_unknown_need(self) -> None:
+        session = Session()
+        need_id = uuid4()
+
+        with self.assertRaises(KeyError):
+            PostgresHelpPointRepository(Factory(session)).create_commitment(
+                need_id, "Ana", None
+            )
+
+        self.assertEqual(session.added, [])
+
+    def test_create_commitment_rejects_covered_need_atomically(self) -> None:
+        session = Session()
+        need_id = uuid4()
+        session.need_rows[need_id] = NeedRow(
+            id=need_id, help_point_id=uuid4(), category_id=uuid4(), estado="COVERED"
+        )
+
+        with self.assertRaisesRegex(ValueError, "covered"):
+            PostgresHelpPointRepository(Factory(session)).create_commitment(
+                need_id, "Ana", None
+            )
+
+        self.assertEqual(session.added, [])
+
+    def test_create_commitment_on_needs_help_row_locks_and_advances_status(self) -> None:
+        session = Session()
+        need_id = uuid4()
+        need_row = NeedRow(
+            id=need_id, help_point_id=uuid4(), category_id=uuid4(), estado="NEEDS_HELP"
+        )
+        session.need_rows[need_id] = need_row
+
+        PostgresHelpPointRepository(Factory(session)).create_commitment(
+            need_id, "Ana", None
+        )
+
+        self.assertEqual(need_row.estado, "HELP_ON_THE_WAY")
+        self.assertTrue(session.locked_for_update[need_id])
+
+    def test_create_commitment_on_help_on_the_way_row_keeps_status(self) -> None:
+        session = Session()
+        need_id = uuid4()
+        need_row = NeedRow(
+            id=need_id, help_point_id=uuid4(), category_id=uuid4(), estado="HELP_ON_THE_WAY"
+        )
+        session.need_rows[need_id] = need_row
+
+        PostgresHelpPointRepository(Factory(session)).create_commitment(
+            need_id, "Ana", None
+        )
+
+        self.assertEqual(need_row.estado, "HELP_ON_THE_WAY")
 
 
 if __name__ == "__main__":
