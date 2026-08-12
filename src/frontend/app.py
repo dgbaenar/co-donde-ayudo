@@ -41,6 +41,7 @@ def create_app(
     list_localities: ListLocalities,
     list_affected_departments: ListDepartments,
     geocode_address: GeocodeAddress,
+    app_base_url: str,
     create_help_point: CreateHelpPointHandler,
     get_managed_help_point: Callable[[str], HelpPoint],
     add_need: AddNeedHandler,
@@ -90,6 +91,7 @@ def create_app(
             list_localities,
             list_affected_departments,
             geocode_address,
+            app_base_url,
         )
 
     @ui.page("/administrar/{admin_token}")

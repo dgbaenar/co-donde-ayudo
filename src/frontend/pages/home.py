@@ -171,21 +171,38 @@ def render_home(
 
     with ui.column().classes("w-full min-h-screen bg-white text-slate-900"):
         with ui.column().classes("w-full max-w-7xl mx-auto gap-4 p-4"):
-            with ui.row().classes("w-full items-center justify-between gap-3"):
-                ui.icon("location_on").classes(
-                    "text-white bg-emerald-700 rounded-xl p-2 text-xl"
-                ).props("aria-hidden=true")
+            with ui.row().classes(
+                "w-full items-center justify-between gap-3 flex-nowrap"
+            ):
+                with ui.row().classes("items-center gap-2 min-w-0 flex-1"):
+                    ui.icon("location_on").classes(
+                        "text-white bg-emerald-700 rounded-xl p-2 text-xl shrink-0"
+                    ).props("aria-hidden=true")
+                    ui.label("¿Dónde ayudo?").classes(
+                        "text-xl sm:text-2xl font-semibold leading-tight "
+                        "text-emerald-950"
+                    )
                 ui.link("Coordinar un punto", "/acceso").classes(
                     "min-h-[44px] flex items-center px-3 rounded-lg "
-                    "font-medium text-emerald-800 hover:bg-slate-100"
+                    "font-medium text-emerald-800 hover:bg-slate-100 shrink-0"
                 )
             with ui.column().classes("w-full gap-1 max-w-3xl"):
-                ui.label("¿Dónde ayudo?").classes(
-                    "text-3xl md:text-4xl font-semibold leading-tight text-emerald-950"
-                )
                 ui.label("Explora el mapa o revisa la lista de puntos activos.").classes(
                     "text-sm md:text-base text-slate-600"
                 )
+            with ui.column().classes(
+                "w-full gap-1 rounded-2xl bg-slate-100 p-4"
+            ):
+                ui.label("Emergencia activa").classes(
+                    "text-xs font-semibold uppercase tracking-wide text-slate-600"
+                )
+                ui.label("Respuesta al terremoto de Chocó").classes(
+                    "text-lg sm:text-xl font-semibold text-slate-900"
+                )
+                ui.label(
+                    "Encuentra puntos de ayuda para zonas afectadas en Chocó, Caldas, "
+                    "Valle del Cauca, Risaralda y Quindío."
+                ).classes("text-sm leading-relaxed text-slate-600")
             with ui.column().classes(
                 "w-full gap-2 rounded-2xl bg-slate-100 p-3"
             ):
@@ -207,7 +224,8 @@ def render_home(
                     ).classes(
                         "w-full sm:w-auto sm:flex-1 sm:min-w-0 bg-white rounded-lg"
                     ).props(
-                        "outlined dense options-dense color=blue-grey-9"
+                        'outlined dense behavior=menu color=blue-grey-9 '
+                        'popup-content-style="max-height: 40vh; overflow-y: auto"'
                     )
                     city = ui.select(
                         options=empty_city_options(),
@@ -217,7 +235,8 @@ def render_home(
                     ).classes(
                         "w-full sm:w-auto sm:flex-1 sm:min-w-0 bg-white rounded-lg"
                     ).props(
-                        "outlined dense options-dense color=blue-grey-9"
+                        'outlined dense behavior=menu color=blue-grey-9 '
+                        'popup-content-style="max-height: 40vh; overflow-y: auto"'
                     )
                     city.disable()
             with ui.grid().classes(

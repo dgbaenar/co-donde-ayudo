@@ -34,6 +34,7 @@ def build_runtime(settings: ApplicationSettings) -> tuple[str, bool]:
         list_localities=location_catalog.list_localities,
         list_affected_departments=list_affected_departments,
         geocode_address=geocoder.search,
+        app_base_url=settings.app_base_url,
         create_help_point=service.create_help_point,
         create_custom_category=service.create_custom_category,
         get_managed_help_point=service.get_managed_help_point,

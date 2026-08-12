@@ -271,6 +271,14 @@ class HomeResponsivePresentationTests(unittest.TestCase):
             self.assertEqual(visible_labels.count("¿Dónde ayudo?"), 1)
             self.assertNotIn("Dónde Ayudo", visible_labels)
             self.assertNotIn("¿Dónde necesitan ayuda?", visible_labels)
+        emergency_explanation = (
+            "Encuentra puntos de ayuda para zonas afectadas en Chocó, Caldas, "
+            "Valle del Cauca, Risaralda y Quindío."
+        )
+        with self.subTest("earthquake context"):
+            self.assertIn("Emergencia activa", visible_labels)
+            self.assertIn("Respuesta al terremoto de Chocó", visible_labels)
+            self.assertIn(emergency_explanation, visible_labels)
         self.assertTrue(any(element.kind == "label" and element.args == ("Explora el mapa o revisa la lista de puntos activos.",) for element in fake_ui.elements))
         self.assertTrue(any(element.kind == "label" and element.args == ("Puntos que necesitan ayuda — 0 resultados",) for element in fake_ui.elements))
         self.assertEqual(rendered_map_points, [()])
@@ -297,6 +305,14 @@ class HomeResponsivePresentationTests(unittest.TestCase):
             self.assertTrue(all("rounded-lg" in element.classes_value for element in selects))
         self.assertTrue(all("outlined" in element.props_value for element in selects))
         self.assertTrue(all("dense" in element.props_value for element in selects))
+        for select in selects:
+            with self.subTest(select=select.kwargs["label"]):
+                self.assertIn("behavior=menu", select.props_value)
+                self.assertIn(
+                    'popup-content-style="max-height: 40vh; overflow-y: auto"',
+                    select.props_value,
+                )
+                self.assertNotIn("options-dense", select.props_value)
         self.assertFalse(any(element.kind == "button" and element.args == ("Aplicar filtros",) for element in fake_ui.elements))
         grid = next(element for element in fake_ui.elements if element.kind == "grid")
         self.assertNotIn("columns", grid.kwargs)
@@ -304,10 +320,24 @@ class HomeResponsivePresentationTests(unittest.TestCase):
         self.assertTrue(any(element.kind == "column" and "min-h-screen" in element.classes_value for element in fake_ui.elements))
         self.assertTrue(any(element.kind == "column" and "max-w-7xl" in element.classes_value for element in fake_ui.elements))
         self.assertTrue(any(element.kind == "column" and "bg-white" in element.classes_value for element in fake_ui.elements))
+        filter_heading = next(
+            element
+            for element in fake_ui.elements
+            if element.kind == "label" and element.args == ("Filtrar por zona afectada",)
+        )
+
+        def has_descendant(parent, target):
+            return any(
+                child is target or has_descendant(child, target)
+                for child in parent.children
+            )
+
         filter_panel = next(
             element
             for element in fake_ui.elements
-            if element.kind == "column" and "bg-slate-100" in element.classes_value
+            if element.kind == "column"
+            and "bg-slate-100" in element.classes_value
+            and has_descendant(element, filter_heading)
         )
         with self.subTest("borderless slate filter panel"):
             self.assertNotIn("border", filter_panel.classes_value.split())
@@ -319,6 +349,69 @@ class HomeResponsivePresentationTests(unittest.TestCase):
         self.assertTrue(any(element.kind == "icon" and element.args == ("location_on",) for element in fake_ui.elements))
         cta = next(element for element in fake_ui.elements if element.kind == "link" and element.args == ("Coordinar un punto", "/acceso"))
         self.assertIn("text-emerald", cta.classes_value)
+        title = next(
+            element
+            for element in fake_ui.elements
+            if element.kind == "label" and element.args == ("¿Dónde ayudo?",)
+        )
+        pin = next(
+            element
+            for element in fake_ui.elements
+            if element.kind == "icon" and element.args == ("location_on",)
+        )
+        header = next(
+            (
+                element
+                for element in fake_ui.elements
+                if element.kind == "row" and cta in element.children
+            ),
+            None,
+        )
+        with self.subTest("brand topology"):
+            self.assertIsNotNone(header)
+            brand = next(
+                (
+                    element
+                    for element in header.children
+                    if element.kind == "row" and pin in element.children
+                ),
+                None,
+            )
+            self.assertIsNotNone(brand)
+            self.assertIn(title, brand.children)
+            self.assertIn(cta, header.children)
+            self.assertIn("flex-nowrap", header.classes_value)
+            self.assertIn("flex-1", brand.classes_value)
+            self.assertIn("min-w-0", brand.classes_value)
+            self.assertIn("shrink-0", cta.classes_value)
+        emergency_title = next(
+            (
+                element
+                for element in fake_ui.elements
+                if element.kind == "label"
+                and element.args == ("Respuesta al terremoto de Chocó",)
+            ),
+            None,
+        )
+        context_panel = next(
+            (
+                element
+                for element in fake_ui.elements
+                if element.kind == "column" and emergency_title in element.children
+            ),
+            None,
+        )
+        with self.subTest("context panel"):
+            self.assertIsNotNone(emergency_title)
+            self.assertIsNotNone(context_panel)
+            self.assertIn("rounded-2xl", context_panel.classes_value)
+            self.assertIn("bg-slate-100", context_panel.classes_value)
+            self.assertIn("p-4", context_panel.classes_value)
+        if context_panel is not None:
+            self.assertLess(
+                fake_ui.elements.index(context_panel),
+                fake_ui.elements.index(filter_heading),
+            )
         filters_row = next(
             element
             for element in fake_ui.elements

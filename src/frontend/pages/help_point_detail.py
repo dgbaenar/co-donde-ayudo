@@ -7,12 +7,17 @@ from uuid import UUID
 
 from nicegui import ui
 
-from backend.domain.models import PublicHelpPoint
+from backend.domain.models import NeedStatus, PublicHelpPoint
 from frontend.components.help_point_map import render_help_point_map, status_text
 
 
 GetPublicHelpPoint = Callable[[UUID], PublicHelpPoint | None]
 _NOT_FOUND_MESSAGE = "No fue posible encontrar este punto de ayuda."
+_STATUS_ROW_CLASSES = {
+    NeedStatus.NEEDS_HELP: "border-l-red-500 bg-red-50/50",
+    NeedStatus.HELP_ON_THE_WAY: "border-l-amber-500 bg-amber-50/50",
+    NeedStatus.COVERED: "border-l-emerald-500 bg-emerald-50/50",
+}
 
 
 def render_help_point_detail_for_path(
@@ -41,22 +46,67 @@ def render_help_point_detail(
     reception_location = ", ".join(
         value for value in (point.address, point.city, point.department) if value
     )
-    with ui.column().classes("w-full max-w-md md:max-w-2xl mx-auto gap-3 p-4"):
-        ui.label(point.name).classes("text-h5")
-        ui.label(
-            f"Ayuda destinada a: {point.affected_city}, {point.affected_department}"
-        )
-        ui.label(f"Recibe ayuda en: {reception_location}")
-        ui.label(point.description)
-        ui.label("Necesidades").classes("text-h6")
-        for need in point.needs:
-            ui.label(
-                f"{status_text(need.status)} "
-                f"{category_names.get(need.category_id, 'Necesidad')}"
+    with ui.column().classes("w-full min-h-screen bg-slate-50"):
+        with ui.column().classes("w-full max-w-4xl mx-auto gap-4 p-4 md:p-6"):
+            ui.link("Volver al mapa", "/").classes(
+                "text-sm font-medium text-slate-700 min-h-[44px] flex items-center"
             )
-        render_help_point_map(
-            (point,),
-            categories,
-            center=(point.latitude, point.longitude),
-            zoom=15,
-        )
+
+            with ui.column().classes(
+                "w-full gap-2 rounded-2xl border border-slate-200 bg-white p-4 md:p-6"
+            ):
+                ui.label(point.name).classes(
+                    "text-2xl md:text-3xl font-bold text-slate-900"
+                ).props("role=heading aria-level=1")
+                ui.label(point.description).classes(
+                    "text-base leading-relaxed text-slate-600"
+                )
+
+            with ui.grid().classes("w-full grid-cols-1 md:grid-cols-2 gap-3"):
+                with ui.column().classes(
+                    "w-full gap-2 rounded-2xl border border-slate-200 bg-white p-4"
+                ):
+                    ui.label("Ayuda destinada a").classes(
+                        "text-lg font-semibold text-slate-900"
+                    ).props("role=heading aria-level=2")
+                    ui.label(
+                        f"{point.affected_city}, {point.affected_department}"
+                    ).classes("text-slate-700")
+
+                with ui.column().classes(
+                    "w-full gap-2 rounded-2xl border border-slate-200 bg-white p-4"
+                ):
+                    ui.label("Recibe ayuda en").classes(
+                        "text-lg font-semibold text-slate-900"
+                    ).props("role=heading aria-level=2")
+                    ui.label(reception_location).classes("text-slate-700")
+
+            with ui.column().classes(
+                "w-full gap-3 rounded-2xl border border-slate-200 bg-white p-4 md:p-6"
+            ):
+                ui.label("Necesidades actuales").classes(
+                    "text-lg font-semibold text-slate-900"
+                ).props("role=heading aria-level=2")
+                for need in point.needs:
+                    with ui.row().classes(
+                        "w-full flex-nowrap items-start gap-3 rounded-xl border "
+                        "border-slate-200 border-l-4 p-3 "
+                        f"{_STATUS_ROW_CLASSES[need.status]}"
+                    ):
+                        ui.label(
+                            f"{status_text(need.status)} "
+                            f"{category_names.get(need.category_id, 'Necesidad')}"
+                        ).classes("text-sm leading-relaxed text-slate-800")
+
+            with ui.column().classes(
+                "w-full gap-3 rounded-2xl border border-slate-200 bg-white p-4 md:p-6"
+            ):
+                ui.label("Ubicación del punto de recepción").classes(
+                    "text-lg font-semibold text-slate-900"
+                ).props("role=heading aria-level=2")
+                render_help_point_map(
+                    (point,),
+                    categories,
+                    center=(point.latitude, point.longitude),
+                    zoom=15,
+                )

@@ -12,10 +12,12 @@ class RecordingElement:
     def __init__(self, kind, *args, **kwargs) -> None:
         self.kind, self.args, self.kwargs = kind, args, kwargs
         self.classes_value = ""
+        self.props_value = ""
 
     def __enter__(self): return self
     def __exit__(self, *_args): return False
     def classes(self, value): self.classes_value = value; return self
+    def props(self, value): self.props_value = value; return self
 
 
 class RecordingUi:
@@ -28,12 +30,18 @@ class RecordingUi:
         return element
 
     def column(self, *args, **kwargs): return self._record("column", *args, **kwargs)
+    def grid(self, *args, **kwargs): return self._record("grid", *args, **kwargs)
+    def row(self, *args, **kwargs): return self._record("row", *args, **kwargs)
+    def link(self, *args, **kwargs): return self._record("link", *args, **kwargs)
     def label(self, *args, **kwargs): return self._record("label", *args, **kwargs)
+    def html(self, *args, **kwargs): return self._record("html", *args, **kwargs)
 
 
 class HelpPointDetailTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.category_id = uuid4()
+        self.water_category_id = uuid4()
+        self.food_category_id = uuid4()
+        self.shelter_category_id = uuid4()
         self.point = PublicHelpPoint(
             id=uuid4(),
             name="Parque Central",
@@ -46,37 +54,140 @@ class HelpPointDetailTests(unittest.TestCase):
             latitude=3.4516,
             longitude=-76.532,
             active=True,
-            needs=(Need(id=uuid4(), category_id=self.category_id, status=NeedStatus.NEEDS_HELP),),
+            needs=(
+                Need(
+                    id=uuid4(),
+                    category_id=self.water_category_id,
+                    status=NeedStatus.NEEDS_HELP,
+                ),
+                Need(
+                    id=uuid4(),
+                    category_id=self.food_category_id,
+                    status=NeedStatus.HELP_ON_THE_WAY,
+                ),
+                Need(
+                    id=uuid4(),
+                    category_id=self.shelter_category_id,
+                    status=NeedStatus.COVERED,
+                ),
+            ),
         )
+        self.categories = {
+            "Agua": self.water_category_id,
+            "Alimentos": self.food_category_id,
+            "Refugio": self.shelter_category_id,
+        }
         self.fake_ui = RecordingUi()
         self.ui_patch = patch.object(help_point_detail, "ui", self.fake_ui)
         self.ui_patch.start()
         self.addCleanup(self.ui_patch.stop)
 
-    def test_valid_uuid_loads_and_renders_public_detail_with_point_map(self) -> None:
+    def test_valid_uuid_renders_semantic_sections_status_rows_and_point_map(self) -> None:
         requested_ids = []
 
         with patch.object(help_point_detail, "render_help_point_map") as render_map:
             help_point_detail.render_help_point_detail_for_path(
                 str(self.point.id),
                 lambda point_id: requested_ids.append(point_id) or self.point,
-                {"Agua": self.category_id},
+                self.categories,
             )
 
         self.assertEqual(requested_ids, [self.point.id])
-        labels = [element.args[0] for element in self.fake_ui.elements if element.kind == "label"]
-        self.assertIn("Parque Central", labels)
-        self.assertIn("Ayuda destinada a: Roldanillo, Valle del Cauca", labels)
+        self.assertTrue(
+            any(
+                element.kind == "column"
+                and "bg-slate-50" in element.classes_value
+                for element in self.fake_ui.elements
+            )
+        )
+        self.assertTrue(
+            any(
+                element.kind == "column"
+                and "max-w-4xl" in element.classes_value
+                for element in self.fake_ui.elements
+            )
+        )
+        self.assertTrue(
+            any(
+                element.kind == "link"
+                and element.args == ("Volver al mapa", "/")
+                for element in self.fake_ui.elements
+            )
+        )
+        headings = [
+            element
+            for element in self.fake_ui.elements
+            if element.kind == "label" and "role=heading" in element.props_value
+        ]
+        level_one = [
+            element.args[0]
+            for element in headings
+            if "aria-level=1" in element.props_value
+        ]
+        level_two = [
+            element.args[0]
+            for element in headings
+            if "aria-level=2" in element.props_value
+        ]
+        self.assertEqual(level_one, ["Parque Central"])
+        self.assertEqual(
+            level_two,
+            [
+                "Ayuda destinada a",
+                "Recibe ayuda en",
+                "Necesidades actuales",
+                "Ubicación del punto de recepción",
+            ],
+        )
+        labels = [
+            element.args[0]
+            for element in self.fake_ui.elements
+            if element.kind == "label"
+        ]
+        self.assertIn("Familias evacuadas reciben apoyo.", labels)
+        self.assertIn("Roldanillo, Valle del Cauca", labels)
+        self.assertIn("Calle 5 # 10-20, Cali, Valle del Cauca", labels)
+        self.assertIn("🔴 Se necesita Agua", labels)
         self.assertIn(
-            "Recibe ayuda en: Calle 5 # 10-20, Cali, Valle del Cauca",
+            "🟡 Hay ayuda en camino — todavía se necesita Alimentos",
             labels,
         )
-        self.assertIn("Familias evacuadas reciben apoyo.", labels)
-        self.assertIn("🔴 Se necesita Agua", labels)
-        self.assertFalse(any("coordinator" in str(label).lower() or "token" in str(label).lower() for label in labels))
+        self.assertIn("🟢 Cubierto — no enviar más Refugio", labels)
+        self.assertFalse(
+            any(element.kind == "html" for element in self.fake_ui.elements)
+        )
+        location_grid = next(
+            element
+            for element in self.fake_ui.elements
+            if element.kind == "grid"
+        )
+        self.assertIn("grid-cols-1", location_grid.classes_value)
+        self.assertIn("md:grid-cols-2", location_grid.classes_value)
+        status_rows = [
+            element
+            for element in self.fake_ui.elements
+            if element.kind == "row" and "border" in element.classes_value
+        ]
+        self.assertEqual(len(status_rows), 3)
+        self.assertTrue(
+            any("red" in element.classes_value for element in status_rows)
+        )
+        self.assertTrue(
+            any("amber" in element.classes_value for element in status_rows)
+        )
+        self.assertTrue(
+            any("emerald" in element.classes_value for element in status_rows)
+        )
+        self.assertFalse(
+            any(
+                "coordinator" in str(label).lower()
+                or "token" in str(label).lower()
+                for label in labels
+            )
+        )
         render_map.assert_called_once_with(
             (self.point,),
-            {"Agua": self.category_id},
+            self.categories,
             center=(3.4516, -76.532),
             zoom=15,
         )

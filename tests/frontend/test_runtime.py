@@ -37,6 +37,7 @@ class RuntimeTests(unittest.TestCase):
         )
         settings.coordinator_access_key.get_secret_value.return_value = "synthetic-access-key"
         settings.app_session_secret.get_secret_value.return_value = "synthetic-session-secret"
+        settings.app_base_url = "https://dondeayudo.example/base"
         settings.session_cookie_https_only = True
         database_config = MagicMock()
         session_factory = MagicMock()
@@ -85,6 +86,7 @@ class RuntimeTests(unittest.TestCase):
             list_localities=location_catalog.list_localities,
             list_affected_departments=list_affected_departments,
             geocode_address=geocoder.search,
+            app_base_url="https://dondeayudo.example/base",
             create_help_point=service.create_help_point,
             create_custom_category=service.create_custom_category,
             get_managed_help_point=service.get_managed_help_point,

@@ -15,21 +15,50 @@ from frontend.pages.manage_help_point import (
 
 
 class RecordingElement:
-    def __init__(self, kind, *args, **kwargs):
+    def __init__(self, ui, kind, *args, **kwargs):
+        self.ui = ui
         self.kind, self.args, self.kwargs = kind, args, kwargs
         self.value = kwargs.get("value")
         self.classes_value = ""
-    def __enter__(self): return self
-    def __exit__(self, *_args): return False
+        self.props_value = ""
+        self.children = []
+    def __enter__(self): self.ui.context.append(self); return self
+    def __exit__(self, *_args): self.ui.context.pop(); return False
     def classes(self, value): self.classes_value = value; return self
-    def clear(self): return None
+    def props(self, value): self.props_value = value; return self
+    def clear(self):
+        removed = set(descendants(self))
+        self.ui.elements[:] = [
+            element for element in self.ui.elements if element not in removed
+        ]
+        self.children.clear()
+
+
+class RecordingDialog(RecordingElement):
+    def __init__(self, ui, *args, **kwargs):
+        super().__init__(ui, "dialog", *args, **kwargs)
+        self.opened = False
+        self.open_calls = 0
+        self.close_calls = 0
+
+    def open(self):
+        self.opened = True
+        self.open_calls += 1
+
+    def close(self):
+        self.opened = False
+        self.close_calls += 1
 
 
 class RecordingUi:
-    def __init__(self): self.elements = []
+    def __init__(self):
+        self.elements = []
+        self.context = []
     def _record(self, kind, *args, **kwargs):
-        element = RecordingElement(kind, *args, **kwargs)
+        element = RecordingElement(self, kind, *args, **kwargs)
         self.elements.append(element)
+        if self.context:
+            self.context[-1].children.append(element)
         return element
     def column(self, *args, **kwargs): return self._record("column", *args, **kwargs)
     def row(self, *args, **kwargs): return self._record("row", *args, **kwargs)
@@ -40,6 +69,18 @@ class RecordingUi:
     def select(self, *args, **kwargs): return self._record("select", *args, **kwargs)
     def button(self, *args, **kwargs): return self._record("button", *args, **kwargs)
     def notify(self, *args, **kwargs): return self._record("notify", *args, **kwargs)
+    def dialog(self, *args, **kwargs):
+        element = RecordingDialog(self, *args, **kwargs)
+        self.elements.append(element)
+        if self.context:
+            self.context[-1].children.append(element)
+        return element
+
+
+def descendants(element):
+    for child in element.children:
+        yield child
+        yield from descendants(child)
 
 
 class ManageHelpPointTests(unittest.TestCase):
@@ -158,9 +199,16 @@ class ManageHelpPointResponsivePresentationTests(unittest.TestCase):
         self.assertEqual(manage_help_point.category_name({}, water_id), "Necesidad")
 
     def test_status_options_use_public_spanish_labels(self) -> None:
-        self.assertEqual(manage_help_point.status_options(), {"Se necesita": NeedStatus.NEEDS_HELP, "Hay ayuda en camino": NeedStatus.HELP_ON_THE_WAY, "Cubierto": NeedStatus.COVERED})
+        self.assertEqual(
+            manage_help_point.status_options(),
+            {
+                "Se necesita": NeedStatus.NEEDS_HELP,
+                "Hay ayuda en camino — todavía se necesita": NeedStatus.HELP_ON_THE_WAY,
+                "Cubierto — no enviar más": NeedStatus.COVERED,
+            },
+        )
 
-    def test_state_selector_uses_selected_public_status_and_full_width_actions(self) -> None:
+    def test_renders_named_sections_action_palette_complete_statuses_and_menus(self) -> None:
         category_id, need_id = uuid4(), uuid4()
         point = HelpPoint(id=uuid4(), name="Parque", description="Apoyo", city="Cali", department="Valle", address="Calle 5 # 10-20", affected_city="Roldanillo", affected_department="Valle del Cauca", latitude=3.0, longitude=-76.0, coordinator_name="Ana", coordinator_contact="Contacto", admin_token="private-token", active=True, needs=(Need(id=need_id, category_id=category_id, status=NeedStatus.NEEDS_HELP),))
         calls, fake_ui = [], RecordingUi()
@@ -180,16 +228,252 @@ class ManageHelpPointResponsivePresentationTests(unittest.TestCase):
             selector.kwargs["options"],
             {
                 NeedStatus.NEEDS_HELP: "Se necesita",
-                NeedStatus.HELP_ON_THE_WAY: "Hay ayuda en camino",
-                NeedStatus.COVERED: "Cubierto",
+                NeedStatus.HELP_ON_THE_WAY: "Hay ayuda en camino — todavía se necesita",
+                NeedStatus.COVERED: "Cubierto — no enviar más",
             },
         )
         self.assertEqual(selector.kwargs["value"], NeedStatus.NEEDS_HELP)
         labels = [element.args[0] for element in fake_ui.elements if element.kind == "label"]
+        self.assertIn("Parque", labels)
+        for section in (
+            "Información pública",
+            "Necesidades",
+            "Agregar necesidad",
+            "Zona de peligro",
+        ):
+            self.assertIn(section, labels)
         self.assertIn("Agua", labels)
         self.assertIn("Se necesita", labels)
-        for text in ("Guardar información", "Guardar estado", "Agregar necesidad", "Desactivar punto"):
-            self.assertIn("w-full min-h-[44px]", next(element for element in fake_ui.elements if element.kind == "button" and element.args[0] == text).classes_value)
+        buttons = {
+            element.args[0]: element
+            for element in fake_ui.elements
+            if element.kind == "button"
+        }
+        for text in (
+            "Guardar información",
+            "Guardar estado",
+            "Agregar necesidad",
+            "Quitar",
+            "Desactivar punto",
+        ):
+            self.assertIn("min-h-[44px]", buttons[text].classes_value)
+        for text in ("Guardar información", "Guardar estado"):
+            self.assertIn("unelevated", buttons[text].props_value)
+            self.assertIn("color=green-9", buttons[text].props_value)
+        self.assertIn("outline", buttons["Agregar necesidad"].props_value)
+        self.assertIn("color=green-9", buttons["Agregar necesidad"].props_value)
+        self.assertIn("outline", buttons["Quitar"].props_value)
+        self.assertIn("color=red-9", buttons["Quitar"].props_value)
+
+        category_selector = next(
+            element
+            for element in fake_ui.elements
+            if element.kind == "select"
+            and element.kwargs.get("label") == "Agregar necesidad"
+        )
+        for current_selector in (selector, category_selector):
+            self.assertIn("behavior=menu", current_selector.props_value)
+            self.assertNotIn("options-dense", current_selector.props_value)
+        self.assertIn(
+            'popup-content-style="max-height: 40vh; overflow-y: auto"',
+            category_selector.props_value,
+        )
+
+    def test_remove_and_deactivate_require_explicit_confirmation_without_token_copy(self) -> None:
+        category_id, need_id = uuid4(), uuid4()
+        token = "synthetic-private-token"
+        point = HelpPoint(id=uuid4(), name="Parque", description="Apoyo", city="Cali", department="Valle", address="Calle 5", affected_city="Roldanillo", affected_department="Valle del Cauca", latitude=3.0, longitude=-76.0, coordinator_name="Ana", coordinator_contact="Contacto", admin_token=token, active=True, needs=(Need(id=need_id, category_id=category_id, status=NeedStatus.NEEDS_HELP),))
+        remove_calls, deactivate_calls = [], []
+        fake_ui = RecordingUi()
+        original_ui = manage_help_point.ui
+        manage_help_point.ui = fake_ui
+        try:
+            manage_help_point.render_manage_help_point(
+                point,
+                token,
+                {"Agua": category_id},
+                lambda *_args: point,
+                lambda *args: remove_calls.append(args) or point,
+                lambda *_args: point,
+                lambda *args: deactivate_calls.append(args) or point,
+                lambda *_args: point,
+            )
+            remove_launch = next(
+                element
+                for element in fake_ui.elements
+                if element.kind == "button" and element.args == ("Quitar",)
+            )
+            deactivate_launch = next(
+                element
+                for element in fake_ui.elements
+                if element.kind == "button"
+                and element.args == ("Desactivar punto",)
+            )
+            dialogs = [
+                element for element in fake_ui.elements if element.kind == "dialog"
+            ]
+            self.assertEqual(len(dialogs), 2)
+            remove_dialog, deactivate_dialog = dialogs
+
+            remove_launch.kwargs["on_click"]()
+            self.assertTrue(remove_dialog.opened)
+            self.assertEqual(remove_calls, [])
+            remove_cancel = next(
+                element
+                for element in fake_ui.elements
+                if element.kind == "button"
+                and element.args == ("Cancelar",)
+                and element in tuple(descendants(remove_dialog))
+            )
+            remove_cancel.kwargs["on_click"]()
+            self.assertFalse(remove_dialog.opened)
+            self.assertEqual(remove_calls, [])
+
+            remove_launch.kwargs["on_click"]()
+            remove_confirm = next(
+                element
+                for element in fake_ui.elements
+                if element.kind == "button"
+                and element.args == ("Sí, quitar necesidad",)
+            )
+            remove_confirm.kwargs["on_click"]()
+            self.assertEqual(remove_calls, [(point, token, need_id)])
+            self.assertFalse(remove_dialog.opened)
+
+            deactivate_launch = next(
+                element
+                for element in fake_ui.elements
+                if element.kind == "button"
+                and element.args == ("Desactivar punto",)
+            )
+            current_dialogs = [
+                element for element in fake_ui.elements if element.kind == "dialog"
+            ]
+            self.assertEqual(len(current_dialogs), 2)
+            deactivate_dialog = current_dialogs[1]
+            deactivate_launch.kwargs["on_click"]()
+            self.assertTrue(deactivate_dialog.opened)
+            self.assertEqual(deactivate_calls, [])
+            deactivate_cancel = next(
+                element
+                for element in fake_ui.elements
+                if element.kind == "button"
+                and element.args == ("Cancelar",)
+                and element in tuple(descendants(deactivate_dialog))
+            )
+            deactivate_cancel.kwargs["on_click"]()
+            self.assertEqual(deactivate_calls, [])
+
+            deactivate_launch.kwargs["on_click"]()
+            deactivate_confirm = next(
+                element
+                for element in fake_ui.elements
+                if element.kind == "button"
+                and element.args == ("Sí, desactivar punto",)
+            )
+            deactivate_confirm.kwargs["on_click"]()
+        finally:
+            manage_help_point.ui = original_ui
+
+        self.assertEqual(deactivate_calls, [(point, token)])
+        self.assertFalse(deactivate_dialog.opened)
+        self.assertIn("unelevated", deactivate_confirm.props_value)
+        self.assertIn("color=red-9", deactivate_confirm.props_value)
+        visible_elements = [
+            (
+                element.kind,
+                element.args,
+                element.kwargs,
+                element.classes_value,
+                element.props_value,
+            )
+            for element in fake_ui.elements
+        ]
+        self.assertNotIn(token, repr(visible_elements))
+
+    def test_handler_error_notification_is_generic_and_omits_token(self) -> None:
+        token = "synthetic-private-token"
+        point = HelpPoint(id=uuid4(), name="Parque", description="Apoyo", city="Cali", department="Valle", address="Calle 5", affected_city="Roldanillo", affected_department="Valle del Cauca", latitude=3.0, longitude=-76.0, coordinator_name="Ana", coordinator_contact="Contacto", admin_token=token, active=True, needs=())
+        fake_ui = RecordingUi()
+        original_ui = manage_help_point.ui
+        manage_help_point.ui = fake_ui
+        try:
+            manage_help_point.render_manage_help_point(
+                point,
+                token,
+                {},
+                lambda *_args: point,
+                lambda *_args: point,
+                lambda *_args: point,
+                lambda *_args: point,
+                lambda *_args: (_ for _ in ()).throw(
+                    PermissionError(f"invalid token {token}")
+                ),
+            )
+            next(
+                element
+                for element in fake_ui.elements
+                if element.kind == "button"
+                and element.args == ("Guardar información",)
+            ).kwargs["on_click"]()
+        finally:
+            manage_help_point.ui = original_ui
+
+        notifications = [
+            element.args[0]
+            for element in fake_ui.elements
+            if element.kind == "notify"
+        ]
+        self.assertEqual(
+            notifications,
+            ["No fue posible actualizar el punto. Inténtalo de nuevo."],
+        )
+        self.assertNotIn(token, repr(notifications))
+
+    def test_unexpected_handler_error_is_generic_and_does_not_propagate(self) -> None:
+        token = "synthetic-private-token"
+        point = HelpPoint(id=uuid4(), name="Parque", description="Apoyo", city="Cali", department="Valle", address="Calle 5", affected_city="Roldanillo", affected_department="Valle del Cauca", latitude=3.0, longitude=-76.0, coordinator_name="Ana", coordinator_contact="Contacto", admin_token=token, active=True, needs=())
+        caught_errors = []
+        fake_ui = RecordingUi()
+        original_ui = manage_help_point.ui
+        manage_help_point.ui = fake_ui
+        try:
+            manage_help_point.render_manage_help_point(
+                point,
+                token,
+                {},
+                lambda *_args: point,
+                lambda *_args: point,
+                lambda *_args: point,
+                lambda *_args: point,
+                lambda *_args: (_ for _ in ()).throw(
+                    RuntimeError(f"database unavailable {token}")
+                ),
+            )
+            try:
+                next(
+                    element
+                    for element in fake_ui.elements
+                    if element.kind == "button"
+                    and element.args == ("Guardar información",)
+                ).kwargs["on_click"]()
+            except RuntimeError as error:
+                caught_errors.append(error)
+        finally:
+            manage_help_point.ui = original_ui
+
+        self.assertEqual(caught_errors, [])
+        notifications = [
+            element.args[0]
+            for element in fake_ui.elements
+            if element.kind == "notify"
+        ]
+        self.assertEqual(
+            notifications,
+            ["No fue posible actualizar el punto. Inténtalo de nuevo."],
+        )
+        self.assertNotIn(token, repr(notifications))
+        self.assertNotIn("database unavailable", repr(notifications))
 
 
 if __name__ == "__main__":

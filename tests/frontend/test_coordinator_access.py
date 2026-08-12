@@ -144,6 +144,7 @@ class CoordinatorAccessRouteTests(unittest.TestCase):
             "list_localities": lambda _department: ("Cali",),
             "list_affected_departments": lambda: ("Valle del Cauca",),
             "geocode_address": geocode_address,
+            "app_base_url": "https://dondeayudo.example/base",
             "create_help_point": lambda _command: self.fail("must not create"),
             "get_managed_help_point": lambda _token: object(),
             "add_need": lambda *_args: object(),
@@ -207,6 +208,10 @@ class CoordinatorAccessRouteTests(unittest.TestCase):
         self.assertIs(
             render.call_args.args[7],
             self.dependencies["geocode_address"],
+        )
+        self.assertEqual(
+            render.call_args.args[8],
+            self.dependencies["app_base_url"],
         )
         self.user_storage.clear()
         self.assertFalse(current_authorization())
