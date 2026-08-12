@@ -367,3 +367,77 @@ coordinator key or private link in output. Confirm no browser console warnings/e
 
 Verify no table/dependency changes, no token in public/notification/log content, no duplicate
 write path, destructive cancel safety, exact earthquake copy, and unchanged backend authorization.
+
+---
+
+### Task 6: Coordinator access guidance
+
+**Files:**
+- Modify: `src/frontend/pages/coordinator_access.py`
+- Test: `tests/frontend/test_coordinator_access.py`
+
+- [ ] **Step 1: Observe RED for the approved explanatory copy and responsive card**
+
+Require the exact coordinator/recollection explanation, the exact plain-text WhatsApp contact
+`dan.barod`, no fabricated URL, and a large primary `Continuar` action. Preserve all existing
+wrong/correct-key behavior tests.
+
+- [ ] **Step 2: Implement the minimal presentation**
+
+Use a neutral card, exact copy from the approved design, no contact link, and
+`unelevated color=green-9` with a minimum 48 px target. Do not change session or authorization.
+
+- [ ] **Step 3: Verify**
+
+```bash
+uv run --no-sync pytest -q tests/frontend/test_coordinator_access.py
+```
+
+---
+
+### Task 7: Railway-safe runtime and container
+
+**Files:**
+- Create: `Dockerfile`
+- Create: `.dockerignore`
+- Create: `railway.toml`
+- Modify: `src/backend/core/config.py`
+- Modify: `src/backend/infrastructure/postgres/database.py`
+- Modify: `src/frontend/runtime.py`
+- Modify: `src/frontend/app.py`
+- Test: `tests/backend/test_settings.py`
+- Test: `tests/backend/test_database.py`
+- Test: `tests/frontend/test_runtime.py`
+- Test: `tests/frontend/test_coordinator_access.py`
+- Modify: `README.md`
+
+- [ ] **Step 1: Observe focused RED**
+
+Test validated `PORT` with local default 8080, explicit host/port/show runtime arguments,
+generic `/healthz` and DB-backed `/readyz`, successful/failing probes without exception details,
+Docker lock installation/non-root user, and Railway pre-deploy/health/restart configuration.
+
+- [ ] **Step 2: Implement runtime/readiness**
+
+Add a no-side-effect PostgreSQL `SELECT 1` probe, inject it into `create_app`, expose health routes,
+and bind NiceGUI to `0.0.0.0:$PORT` with `show=False`. Keep imports absolute and secrets out.
+
+- [ ] **Step 3: Add deterministic deployment files**
+
+Build from `uv.lock` in a root Dockerfile, exclude local/private artifacts, and configure Railway to
+run Alembic once before start, check `/readyz`, and restart on failure. Do not run Alembic in CMD.
+
+- [ ] **Step 4: Document release protection**
+
+Document required variables and exact build/predeploy/start/health behavior, provider backup and
+restore verification, write freeze for existing migration 0002, app rollback vs database rollback,
+forward-fix preference, and expand/backfill/deploy/contract for future migrations.
+
+- [ ] **Step 5: Verify focused and full checks**
+
+```bash
+uv run --no-sync pytest -q tests/backend/test_settings.py tests/backend/test_database.py \
+  tests/frontend/test_runtime.py tests/frontend/test_coordinator_access.py
+uv run --no-sync pytest -q
+uv lock --check
+```

@@ -2,8 +2,8 @@
 
 **Date:** 2026-08-11  
 **Status:** Approved in conversation  
-**Scope:** NiceGUI home, creation, public detail and single-point administration, plus composition
-wiring for the public base URL
+**Scope:** NiceGUI home, creation, public detail and single-point administration, composition
+wiring for the public base URL, coordinator guidance, and safe Railway deployment
 
 ## Problem
 
@@ -145,6 +145,35 @@ Confirmation performs exactly one call. Dialogs and notifications must not displ
 The admin `Estado` and `Agregar necesidad` selects use `behavior=menu`; the long category menu is
 capped at `40vh` with scrolling and normal-height options.
 
+### Coordinator access guidance
+
+`/acceso` preserves the approved shared-key security model and adds this explanatory copy:
+
+```text
+Acceso para coordinadores
+Si coordinas un punto de ayuda o de recolección, ingresa la clave compartida para crear y publicar el punto.
+¿No tienes una clave o necesitas ayuda? Contacto por WhatsApp: dan.barod
+```
+
+The contact remains plain text until a verified WhatsApp number or URL is supplied; do not invent a
+`wa.me` link. The submit action is a large, touch-safe primary button and authorization failures
+remain generic.
+
+### Railway release safety
+
+- A root Dockerfile installs the production environment from `uv.lock` and runs as a non-root user.
+- Runtime validates optional `PORT`, defaults locally to 8080, and binds NiceGUI to
+  `0.0.0.0:$PORT` with browser launch disabled.
+- `/healthz` proves the process answers HTTP. `/readyz` calls one injected PostgreSQL `SELECT 1`
+  probe and returns fixed generic text with 200/503 without exposing an exception.
+- `railway.toml` selects the Dockerfile, runs Alembic exactly once as a pre-deploy command, starts
+  only after migration success, checks `/readyz`, and restarts on failure.
+- Before a production schema migration, create and verify a provider backup and record the current
+  and target Alembic revisions. Railway app rollback does not roll back PostgreSQL. For the existing
+  non-compatible migration 0002, freeze writes during the first migration; prefer a forward fix to
+  downgrade. Future migrations use expand, backfill, deploy, contract.
+- These changes do not add a dependency or application table.
+
 ## Code boundaries
 
 - `src/frontend/pages/create_help_point.py`: form/success states, duplicate-submit guard, copy UI.
@@ -154,7 +183,8 @@ capped at `40vh` with scrolling and normal-height options.
   destructive confirmations.
 - `src/frontend/app.py`: pass the validated public base URL to the creation route.
 - `src/frontend/runtime.py`: supply `ApplicationSettings.app_base_url` without exposing secrets.
-- Frontend tests only; no backend, schema, dependency, or authentication changes.
+- Keep the coordinator key model and four-table schema unchanged; add only the minimal settings,
+  readiness probe, container, and Railway configuration required by this expanded scope.
 
 ## Acceptance criteria
 
@@ -179,6 +209,9 @@ capped at `40vh` with scrolling and normal-height options.
 - Cancelling destructive confirmations invokes no handler; confirming invokes exactly one.
 - Admin selectors use bounded mobile menus and the private token never enters visible copy,
   notifications, logs, or DOM identifiers.
+- `/acceso` explains the intended coordinators and shows only the approved plain-text contact.
+- The Docker image builds from the lock, runtime consumes `PORT`, liveness/readiness are generic,
+  and Railway runs Alembic before traffic reaches a healthy release.
 - Frontend tests and the full configured suite pass; browser checks cover 1280x900, 390x844, and
   375x667 with no horizontal overflow or console errors.
 

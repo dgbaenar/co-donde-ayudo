@@ -54,6 +54,8 @@ Fuente: `docs/product/mvp.md`.
 
 - [x] El botón público de creación lleva a `/acceso` y `/crear` redirige allí sin sesión.
 - [x] `/acceso` autoriza únicamente una clave válida y guarda solo un booleano en la sesión firmada.
+- [x] `/acceso` explica que es para coordinadores de puntos de ayuda o recolección y muestra
+  `dan.barod` como contacto para solicitar la clave, sin integrar WhatsApp.
 - [x] Ningún secreto aparece en URLs, HTML, respuestas, logs o pruebas.
 - [x] La ruta de creación separa la zona afectada de la ubicación física, exige dirección o
   referencia y permite seleccionar varias necesidades.
@@ -118,6 +120,8 @@ Fuente: `docs/product/mvp.md`.
 - Fase 3: la base prevista para ubicación física en Leaflet y búsqueda explícita con Nominatim se
   incorporó anticipadamente a F1-04 por decisión aprobada; cualquier trabajo posterior se limita a
   mejoras de esa experiencia, sin otro proveedor ni otra tabla.
-- Fase 4: móvil, validación final, errores, Docker, README, tests y revisión de seguridad.
+- Fase 4: la base operativa de Docker, Railway y README se incorporó anticipadamente por decisión
+  aprobada. Siguen pendientes el gate final móvil, tests integrales y revisión de seguridad. El
+  procedimiento de publicación y migraciones está en el [README](../../README.md#despliegue-en-railway).
 
 No iniciar una fase posterior antes de aprobar el gate de la fase anterior.

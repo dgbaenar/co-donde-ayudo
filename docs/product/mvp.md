@@ -707,6 +707,10 @@ Ruta:
 Esta ruta requiere una sesión de coordinador obtenida mediante `/acceso`. Una visita directa sin
 sesión debe redirigir a `/acceso` sin renderizar el formulario.
 
+`/acceso` explica que la clave es para coordinadores de puntos de ayuda o de recolección. Si una
+persona no tiene la clave, muestra `Contacto por WhatsApp: dan.barod` como orientación de contacto.
+Esto es solo texto informativo: no agrega un enlace, bot ni integración con WhatsApp.
+
 Formulario pequeño.
 
 Campos:
@@ -1237,6 +1241,11 @@ Solamente:
 - README;
 - tests;
 - revisión básica de seguridad.
+
+La base operativa de Docker, Railway y README se incorporó anticipadamente por decisión aprobada.
+La configuración vigente y el procedimiento seguro de publicación y migraciones se documentan en
+el [README](../../README.md#despliegue-en-railway); esto no completa por sí solo la validación final
+de la Fase 4.
 
 NO añadir features nuevos.
 
