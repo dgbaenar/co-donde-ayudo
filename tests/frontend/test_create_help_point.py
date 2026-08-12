@@ -300,6 +300,23 @@ class CreateHelpPointTests(unittest.TestCase):
         )
         self.assertEqual(admin_path, "/administrar/private-token")
 
+    def test_build_command_includes_important_links(self) -> None:
+        command = build_command(
+            self.values,
+            ("Agua",),
+            self.categories,
+            important_links=("https://example.com/donaciones",),
+        )
+
+        self.assertEqual(
+            command.important_links, ("https://example.com/donaciones",)
+        )
+
+    def test_build_command_defaults_important_links_to_empty_tuple(self) -> None:
+        command = build_command(self.values, ("Agua",), self.categories)
+
+        self.assertEqual(command.important_links, ())
+
     def test_build_command_rejects_unknown_category_before_handler_invocation(self) -> None:
         with self.assertRaisesRegex(ValueError, "unknown category"):
             build_command(self.values, ("No existe",), self.categories)
@@ -486,7 +503,11 @@ class CreateHelpPointResponsivePresentationTests(unittest.TestCase):
             )
         )
         full_width_fields = [
-            element for element in fields if element.args and element.args[0] != "+ Agregar otra necesidad"
+            element
+            for element in fields
+            if element.args
+            and element.args[0]
+            not in {"+ Agregar otra necesidad", "Enlace importante (URL)"}
         ]
         self.assertTrue(full_width_fields)
         self.assertTrue(all("w-full" in element.classes_value for element in full_width_fields))
@@ -1505,6 +1526,262 @@ class CreateHelpPointResponsivePresentationTests(unittest.TestCase):
                 )
         finally:
             create_help_point.ui = original_ui
+
+    def test_add_and_remove_important_link_updates_visible_list(self) -> None:
+        fake_ui = RecordingUi()
+        original_ui = create_help_point.ui
+        create_help_point.ui = fake_ui
+        try:
+            with patch.object(
+                create_help_point,
+                "render_location_picker",
+                return_value=SimpleNamespace(latitude=3.45, longitude=-76.53),
+            ):
+                create_help_point.render_create_help_point(
+                    {"Agua": uuid4()},
+                    lambda _command: self.fail("must not publish"),
+                    lambda _name: self.fail("must not create category"),
+                    lambda: ("Valle del Cauca",),
+                    self.list_localities,
+                    lambda: self.AFFECTED_DEPARTMENTS,
+                    lambda *_args: self.fail("geocoder must not run"),
+                    "https://dondeayudo.example",
+                )
+                link_input = next(
+                    element
+                    for element in fake_ui.elements
+                    if element.kind == "input"
+                    and element.args == ("Enlace importante (URL)",)
+                )
+                add_link_button = next(
+                    element
+                    for element in fake_ui.elements
+                    if element.kind == "button"
+                    and element.args == ("Agregar enlace",)
+                )
+
+                # A blank/whitespace-only value is a no-op.
+                link_input.value = "   "
+                elements_before_noop = len(fake_ui.elements)
+                add_link_button.kwargs["on_click"]()
+                self.assertEqual(len(fake_ui.elements), elements_before_noop)
+
+                link_input.value = "  https://example.com/donaciones  "
+                elements_before = len(fake_ui.elements)
+                add_link_button.kwargs["on_click"]()
+
+                self.assertEqual(link_input.value, "")
+                new_elements = fake_ui.elements[elements_before:]
+                link_row = next(
+                    element for element in new_elements if element.kind == "row"
+                )
+                self.assertTrue(
+                    any(
+                        element.kind == "label"
+                        and element.args == ("https://example.com/donaciones",)
+                        for element in new_elements
+                    )
+                )
+                self.assertTrue(link_row.visible)
+
+                # Adding the exact same link again warns instead of duplicating.
+                link_input.value = "https://example.com/donaciones"
+                add_link_button.kwargs["on_click"]()
+                self.assertTrue(
+                    any(
+                        element.kind == "notify"
+                        and element.kwargs.get("type") == "warning"
+                        for element in fake_ui.elements
+                    )
+                )
+
+                remove_button = next(
+                    element
+                    for element in new_elements
+                    if element.kind == "button" and element.args == ("Quitar",)
+                )
+                remove_button.kwargs["on_click"]()
+
+                self.assertFalse(link_row.visible)
+        finally:
+            create_help_point.ui = original_ui
+
+    def test_publish_includes_added_important_links_in_command(self) -> None:
+        fake_ui = RecordingUi()
+        original_ui = create_help_point.ui
+        create_help_point.ui = fake_ui
+        create_calls = []
+        category_id = uuid4()
+        try:
+            with patch.object(
+                create_help_point,
+                "render_location_picker",
+                return_value=SimpleNamespace(latitude=3.45, longitude=-76.53),
+            ):
+                create_help_point.render_create_help_point(
+                    {"Agua": category_id},
+                    lambda command: create_calls.append(command)
+                    or SimpleNamespace(admin_token="synthetic-token"),
+                    lambda _name: self.fail("empty custom category must not be created"),
+                    lambda: ("Valle del Cauca",),
+                    self.list_localities,
+                    lambda: self.AFFECTED_DEPARTMENTS,
+                    lambda *_args: self.fail("geocoder must not run"),
+                    "https://dondeayudo.example",
+                )
+                self.fill_valid_form(fake_ui, need="Agua")
+
+                link_input = next(
+                    element
+                    for element in fake_ui.elements
+                    if element.kind == "input"
+                    and element.args == ("Enlace importante (URL)",)
+                )
+                add_link_button = next(
+                    element
+                    for element in fake_ui.elements
+                    if element.kind == "button"
+                    and element.args == ("Agregar enlace",)
+                )
+                link_input.value = "https://example.com/donaciones"
+                add_link_button.kwargs["on_click"]()
+
+                publish = next(
+                    element
+                    for element in fake_ui.elements
+                    if element.kind == "button"
+                    and element.args == ("Publicar punto de ayuda",)
+                )
+                publish.kwargs["on_click"]()
+        finally:
+            create_help_point.ui = original_ui
+
+        self.assertEqual(len(create_calls), 1)
+        self.assertEqual(
+            create_calls[0].important_links,
+            ("https://example.com/donaciones",),
+        )
+
+    def test_publish_with_removed_link_excludes_it_from_command(self) -> None:
+        fake_ui = RecordingUi()
+        original_ui = create_help_point.ui
+        create_help_point.ui = fake_ui
+        create_calls = []
+        category_id = uuid4()
+        try:
+            with patch.object(
+                create_help_point,
+                "render_location_picker",
+                return_value=SimpleNamespace(latitude=3.45, longitude=-76.53),
+            ):
+                create_help_point.render_create_help_point(
+                    {"Agua": category_id},
+                    lambda command: create_calls.append(command)
+                    or SimpleNamespace(admin_token="synthetic-token"),
+                    lambda _name: self.fail("empty custom category must not be created"),
+                    lambda: ("Valle del Cauca",),
+                    self.list_localities,
+                    lambda: self.AFFECTED_DEPARTMENTS,
+                    lambda *_args: self.fail("geocoder must not run"),
+                    "https://dondeayudo.example",
+                )
+                self.fill_valid_form(fake_ui, need="Agua")
+
+                link_input = next(
+                    element
+                    for element in fake_ui.elements
+                    if element.kind == "input"
+                    and element.args == ("Enlace importante (URL)",)
+                )
+                add_link_button = next(
+                    element
+                    for element in fake_ui.elements
+                    if element.kind == "button"
+                    and element.args == ("Agregar enlace",)
+                )
+                link_input.value = "https://example.com/donaciones"
+                elements_before = len(fake_ui.elements)
+                add_link_button.kwargs["on_click"]()
+                new_elements = fake_ui.elements[elements_before:]
+                remove_button = next(
+                    element
+                    for element in new_elements
+                    if element.kind == "button" and element.args == ("Quitar",)
+                )
+                remove_button.kwargs["on_click"]()
+
+                publish = next(
+                    element
+                    for element in fake_ui.elements
+                    if element.kind == "button"
+                    and element.args == ("Publicar punto de ayuda",)
+                )
+                publish.kwargs["on_click"]()
+        finally:
+            create_help_point.ui = original_ui
+
+        self.assertEqual(len(create_calls), 1)
+        self.assertEqual(create_calls[0].important_links, ())
+
+    def test_publish_with_invalid_important_link_shows_error_and_does_not_publish(
+        self,
+    ) -> None:
+        fake_ui = RecordingUi()
+        original_ui = create_help_point.ui
+        create_help_point.ui = fake_ui
+        create_calls = []
+        category_id = uuid4()
+        try:
+            with patch.object(
+                create_help_point,
+                "render_location_picker",
+                return_value=SimpleNamespace(latitude=3.45, longitude=-76.53),
+            ):
+                create_help_point.render_create_help_point(
+                    {"Agua": category_id},
+                    lambda command: create_calls.append(command),
+                    lambda _name: self.fail("empty custom category must not be created"),
+                    lambda: ("Valle del Cauca",),
+                    self.list_localities,
+                    lambda: self.AFFECTED_DEPARTMENTS,
+                    lambda *_args: self.fail("geocoder must not run"),
+                    "https://dondeayudo.example",
+                )
+                self.fill_valid_form(fake_ui, need="Agua")
+
+                link_input = next(
+                    element
+                    for element in fake_ui.elements
+                    if element.kind == "input"
+                    and element.args == ("Enlace importante (URL)",)
+                )
+                add_link_button = next(
+                    element
+                    for element in fake_ui.elements
+                    if element.kind == "button"
+                    and element.args == ("Agregar enlace",)
+                )
+                link_input.value = "ftp://example.com/donaciones"
+                add_link_button.kwargs["on_click"]()
+
+                publish = next(
+                    element
+                    for element in fake_ui.elements
+                    if element.kind == "button"
+                    and element.args == ("Publicar punto de ayuda",)
+                )
+                publish.kwargs["on_click"]()
+        finally:
+            create_help_point.ui = original_ui
+
+        self.assertEqual(create_calls, [])
+        self.assertTrue(
+            any(
+                element.kind == "notify"
+                and element.kwargs.get("type") == "negative"
+                for element in fake_ui.elements
+            )
+        )
 
 
 if __name__ == "__main__":

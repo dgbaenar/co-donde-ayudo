@@ -282,6 +282,18 @@ def render_help_point_detail(
                                 need, create_commitment, on_committed=render_status
                             )
 
+            if point.important_links:
+                with ui.column().classes(
+                    "w-full gap-2 rounded-2xl border border-slate-200 bg-white p-4 md:p-6"
+                ):
+                    ui.label("Enlaces importantes").classes(
+                        "text-lg font-semibold text-slate-900"
+                    ).props("role=heading aria-level=2")
+                    for link_url in point.important_links:
+                        ui.link(link_url, link_url).classes(
+                            "text-sm text-blue-700 break-all"
+                        )
+
             with ui.column().classes(
                 "w-full gap-3 rounded-2xl border border-slate-200 bg-white p-4 md:p-6"
             ):

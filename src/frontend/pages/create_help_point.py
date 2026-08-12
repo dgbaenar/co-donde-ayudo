@@ -32,6 +32,7 @@ _NEEDS_MULTISELECT_PROPS = f"{_BOUNDED_MENU_PROPS} use-chips"
 _CUSTOM_CATEGORY_PLACEHOLDER_ID = UUID(int=0)
 _PUBLICATION_FAILURE_MESSAGE = "No fue posible publicar el punto. Inténtalo de nuevo."
 _DUPLICATE_CUSTOM_CATEGORY_MESSAGE = "Esa necesidad ya está en la lista."
+_DUPLICATE_LINK_MESSAGE = "Ese enlace ya está en la lista."
 
 
 class _PublicationHandlerError(Exception):
@@ -65,6 +66,7 @@ def build_command(
     values: FormValues,
     selected_categories: Sequence[str],
     categories: Mapping[str, UUID],
+    important_links: Sequence[str] = (),
 ) -> CreateHelpPoint:
     if values.latitude is None or values.longitude is None:
         raise ValueError("Selecciona una ubicación en el mapa.")
@@ -88,6 +90,7 @@ def build_command(
             coordinator_contact=values.coordinator_contact.strip(),
             category_ids=category_ids,
             additional_affected_areas=(values.additional_affected_areas or "").strip() or None,
+            important_links=tuple(important_links),
         )
     except ValueError as error:
         raise ValueError(
@@ -101,6 +104,7 @@ def publish_help_point(
     categories: Mapping[str, UUID],
     create_custom_category: CreateCustomCategoryHandler,
     create_help_point: CreateHelpPointHandler,
+    important_links: Sequence[str] = (),
 ) -> str:
     unknown_names = [name for name in selected_categories if name not in categories]
     if unknown_names:
@@ -115,6 +119,7 @@ def publish_help_point(
             values,
             selected_categories,
             {**categories, **placeholder_ids},
+            important_links,
         )
         try:
             created_ids = [create_custom_category(name) for name in unknown_names]
@@ -125,7 +130,7 @@ def publish_help_point(
             **{name: category_id for name, category_id in zip(unknown_names, created_ids)},
         }
 
-    command = build_command(values, selected_categories, categories)
+    command = build_command(values, selected_categories, categories, important_links)
     try:
         created = create_help_point(command)
         return f"/administrar/{created.admin_token}"
@@ -299,6 +304,47 @@ def render_create_help_point(
                 )
             custom_category_name.on("keydown.enter", add_custom_category)
 
+            important_links: list[str] = []
+
+            def remove_link(url: str, row) -> None:
+                if url in important_links:
+                    important_links.remove(url)
+                row.visible = False
+
+            def add_link() -> None:
+                url = (link_input.value or "").strip()
+                if not url:
+                    return
+                if url in important_links:
+                    ui.notify(_DUPLICATE_LINK_MESSAGE, type="warning")
+                    return
+                important_links.append(url)
+                link_input.value = ""
+                with links_container:
+                    with ui.row().classes(
+                        "w-full items-center gap-2 flex-nowrap"
+                    ) as link_row:
+                        ui.label(url).classes(
+                            "flex-1 min-w-0 break-all text-sm text-slate-700"
+                        )
+                        ui.button(
+                            "Quitar",
+                            on_click=lambda url=url, row=link_row: remove_link(
+                                url, row
+                            ),
+                        ).classes("min-h-[44px] shrink-0").props("flat")
+
+            ui.label("Enlaces importantes (opcional)").classes("text-h6")
+            with ui.row().classes("w-full gap-2 items-end flex-nowrap"):
+                link_input = ui.input("Enlace importante (URL)").classes(
+                    "flex-1 min-w-0"
+                )
+                ui.button("Agregar enlace", on_click=add_link).classes(
+                    "min-h-[44px] shrink-0"
+                )
+            link_input.on("keydown.enter", add_link)
+            links_container = ui.column().classes("w-full gap-2")
+
             def submit() -> None:
                 nonlocal submitting, published
                 if submitting or published:
@@ -327,6 +373,7 @@ def render_create_help_point(
                         categories,
                         create_custom_category,
                         create_help_point,
+                        tuple(important_links),
                     )
                 except (TypeError, ValueError) as error:
                     ui.notify(str(error), type="negative")

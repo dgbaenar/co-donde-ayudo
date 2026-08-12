@@ -373,6 +373,82 @@ class HelpPointDetailTests(unittest.TestCase):
         self.assertIn("Todo el departamento de Valle del Cauca", labels)
         self.assertFalse(any("None" in label for label in labels))
 
+    def test_important_links_section_renders_each_link_when_present(self) -> None:
+        point_with_links = PublicHelpPoint(
+            id=self.point.id,
+            name=self.point.name,
+            description=self.point.description,
+            city=self.point.city,
+            department=self.point.department,
+            address=self.point.address,
+            affected_city=self.point.affected_city,
+            affected_department=self.point.affected_department,
+            latitude=self.point.latitude,
+            longitude=self.point.longitude,
+            coordinator_name="Ana",
+            coordinator_contact="Contacto",
+            active=self.point.active,
+            needs=self.point.needs,
+            important_links=(
+                "https://example.com/donaciones",
+                "https://redsocial.example/punto",
+            ),
+        )
+
+        with patch.object(help_point_detail, "render_help_point_map"):
+            help_point_detail.render_help_point_detail_for_path(
+                str(point_with_links.id),
+                lambda _point_id: point_with_links,
+                self.categories,
+                self.no_op_create_commitment,
+            )
+
+        labels = [
+            element.args[0]
+            for element in self.fake_ui.elements
+            if element.kind == "label"
+        ]
+        self.assertIn("Enlaces importantes", labels)
+        link_elements = [
+            element for element in self.fake_ui.elements if element.kind == "link"
+        ]
+        self.assertTrue(
+            any(
+                element.args
+                == (
+                    "https://example.com/donaciones",
+                    "https://example.com/donaciones",
+                )
+                for element in link_elements
+            )
+        )
+        self.assertTrue(
+            any(
+                element.args
+                == (
+                    "https://redsocial.example/punto",
+                    "https://redsocial.example/punto",
+                )
+                for element in link_elements
+            )
+        )
+
+    def test_important_links_section_absent_when_empty(self) -> None:
+        with patch.object(help_point_detail, "render_help_point_map"):
+            help_point_detail.render_help_point_detail_for_path(
+                str(self.point.id),
+                lambda _point_id: self.point,
+                self.categories,
+                self.no_op_create_commitment,
+            )
+
+        labels = [
+            element.args[0]
+            for element in self.fake_ui.elements
+            if element.kind == "label"
+        ]
+        self.assertNotIn("Enlaces importantes", labels)
+
     def test_invalid_or_missing_point_shows_same_generic_message(self) -> None:
         for path_value, getter in (
             ("not-a-uuid", lambda _point_id: self.fail("invalid UUID must not reach backend")),
