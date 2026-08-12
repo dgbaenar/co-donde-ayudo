@@ -565,8 +565,20 @@ Texto:
 
 > Explora el mapa o revisa la lista de puntos activos.
 
-Mostrar de inmediato el mapa y los Puntos activos. Mostrar también la acción secundaria
-**Coordinar un punto**, que lleva a `/acceso`; no debe abrir directamente el formulario protegido.
+El pin verde y el título comparten el lado izquierdo de una sola fila responsiva. La acción
+secundaria **Coordinar un punto** permanece a la derecha y lleva a `/acceso`; no debe abrir
+directamente el formulario protegido. El título aparece una sola vez y el subtítulo queda debajo.
+
+Inmediatamente después mostrar un panel neutral y compacto con este contexto exacto:
+
+```text
+Emergencia activa
+Respuesta al terremoto de Chocó
+Encuentra puntos de ayuda para zonas afectadas en Chocó, Caldas, Valle del Cauca, Risaralda y Quindío.
+```
+
+El contexto aparece antes de filtros y mapa. No crea un modelo de eventos, selector de fechas,
+feed de noticias ni una quinta tabla.
 
 Usar una superficie principal blanca y un panel de filtros gris neutro. Los selectores son blancos;
 no usar fondo o borde verde en el panel. Reservar el verde para marca, acciones y estados.
@@ -601,6 +613,18 @@ mapa. No se muestra un timestamp ni una CTA visible dentro de la fila.
 La lista y el detalle distinguen siempre la ubicación física con **Recibe ayuda en:** de la zona
 afectada con **Ayuda destinada a:**.
 
+El detalle público `/puntos/{point_id}` usa una jerarquía seccionada y neutral:
+
+1. enlace **Volver al mapa**;
+2. un único encabezado de nivel uno con el nombre y una descripción separada;
+3. secciones **Ayuda destinada a** y **Recibe ayuda en**, en dos columnas desde computador y
+   apiladas en móvil;
+4. **Necesidades actuales**, con una fila por necesidad y el estado textual completo;
+5. **Ubicación del punto de recepción**, con el mapa de coordenadas físicas.
+
+El contenido dinámico se representa como texto seguro, no como HTML crudo. Rojo, ámbar y verde son
+señales secundarias del estado; la información no depende únicamente del color.
+
 No crear cards enormes.
 
 Priorizar densidad y legibilidad.
@@ -629,6 +653,15 @@ ubicación física.
 Nada de búsqueda avanzada.
 
 Las categorías se muestran como necesidades dentro de cada Punto, no como filtro del inicio.
+
+Los seis selectores de ubicación usan menús móviles acotados, no diálogos de pantalla completa:
+`Departamento` y `Ciudad / Municipio` en el inicio; `Departamento afectado`,
+`Ciudad / Municipio afectado`, `Departamento del punto` y `Ciudad / Municipio del punto` en la
+creación. Todos usan `behavior=menu`, contenido desplazable con altura máxima `40vh` y opciones de
+altura normal. El multiselect **Necesidades** es el séptimo selector en alcance y usa el mismo menú
+acotado; puede permanecer abierto mientras se eligen varias opciones. Los selects administrativos
+**Estado** y **Agregar necesidad** también usan `behavior=menu`; el catálogo de necesidades se
+limita a `40vh`. No aplicar este cambio a otros selects administrativos.
 
 ---
 
@@ -783,12 +816,37 @@ con Python `secrets`.
 Crear URL:
 
 ```text
-/administrar/<admin_token>
+https://origen-configurado/administrar/<admin_token>
 ```
 
-Mostrarla al coordinador:
+Después de la primera publicación exitosa, ocultar el formulario y mostrar únicamente una pantalla
+de éxito enfocada:
 
-> Guarda este enlace. Lo necesitarás para actualizar tu Punto de ayuda.
+```text
+Punto de ayuda publicado
+Este enlace es privado. Cópialo y guárdalo: lo necesitarás para administrar el punto.
+[URL absoluta readonly y seleccionable]
+[Copiar enlace]
+[Abrir administración]
+```
+
+Construir la URL absoluta desde el origen de `APP_BASE_URL`: conservar solo esquema y autoridad,
+descartar path, query y fragment, y anexar `/administrar/<admin_token>`. La URL visible, copiada y
+abierta debe ser la misma.
+
+Antes de cualquier escritura de categoría personalizada o Punto, activar un guard de publicación
+y deshabilitar el botón. Los clics repetidos durante la escritura y todos los intentos posteriores
+al éxito no ejecutan otro handler. Si la publicación falla, limpiar el guard, reactivar el
+formulario y no mostrar ningún enlace privado.
+
+**Copiar enlace** inicia la operación de portapapeles solo al pulsarlo. Un éxito muestra
+`Enlace privado copiado.`; un rechazo o portapapeles no disponible muestra
+`No se pudo copiar automáticamente. Mantén presionado el enlace y cópialo manualmente.`. Ninguna
+notificación incluye URL o token. El campo readonly siempre permite copia manual; en una sesión
+HTTP desde teléfono el copiado automático puede no estar disponible.
+
+El estado de éxito no se recupera tras recargar. No agregar sesión, tabla, cuenta ni mecanismo de
+recuperación para el enlace.
 
 ---
 
@@ -800,7 +858,7 @@ Nada de dashboard general.
 
 Mostrar:
 
-## Información del punto
+## Información pública
 
 Permitir editar:
 
@@ -816,8 +874,8 @@ Agua
 🔴 Se necesita
 
 [Se necesita]
-[Ayuda en camino]
-[Cubierto]
+[Hay ayuda en camino — todavía se necesita]
+[Cubierto — no enviar más]
 [Quitar]
 ```
 
@@ -828,16 +886,26 @@ Rescatistas
 🔴 Se necesita
 
 [Se necesita]
-[Ayuda en camino]
-[Cubierto]
+[Hay ayuda en camino — todavía se necesita]
+[Cubierto — no enviar más]
 [Quitar]
 ```
 
-Abajo:
+## Agregar necesidad
 
-## + Agregar necesidad
+## Zona de peligro
 
-Nada más.
+Mostrar el nombre del Punto debajo del título de la página. Usar cards blancas o slate con bordes
+sutiles y estas acciones explícitas, todas con objetivo táctil mínimo de 44 px:
+
+- **Guardar información** y **Guardar estado**: botón relleno `green-9`;
+- **Agregar necesidad**: botón outlined `green-9`;
+- **Quitar**: botón outlined `red-9`;
+- **Desactivar punto**: botón relleno `red-9`, únicamente dentro de **Zona de peligro**.
+
+Reservar el rojo para acciones destructivas y no depender solo del color. El selector de estado
+usa los textos públicos completos: **Se necesita**, **Hay ayuda en camino — todavía se necesita**
+y **Cubierto — no enviar más**.
 
 ---
 
@@ -847,7 +915,8 @@ Si el coordinador pulsa:
 
 ## Quitar
 
-la necesidad deja de aparecer públicamente en ese Punto.
+abrir una confirmación explícita. Cancelar no llama al backend; confirmar **Sí, quitar necesidad**
+ejecuta exactamente una operación y la necesidad deja de aparecer públicamente en ese Punto.
 
 No eliminar la categoría global.
 
@@ -883,15 +952,19 @@ No necesitamos más información.
 
 # 25. Desactivar Punto
 
-Botón:
+Dentro de **Zona de peligro**, botón:
 
-## Este punto ya no necesita ayuda
+## Desactivar punto
 
-Cambiar:
+Abrir una confirmación explícita. Cancelar no llama al backend; confirmar **Sí, desactivar punto**
+ejecuta exactamente una operación y cambia:
+
 
 ```text
 activo = false
 ```
+
+Los diálogos y notificaciones no muestran el `admin_token`.
 
 Debe desaparecer de la lista y mapa principal.
 

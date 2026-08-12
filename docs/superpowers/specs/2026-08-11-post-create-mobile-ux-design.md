@@ -1,8 +1,9 @@
 # Post-creation and mobile-selection UX design
 
 **Date:** 2026-08-11  
-**Status:** Approved in conversation; pending written-spec review  
-**Scope:** NiceGUI frontend only, plus composition wiring for the public base URL
+**Status:** Approved in conversation  
+**Scope:** NiceGUI home, creation, public detail and single-point administration, plus composition
+wiring for the public base URL
 
 ## Problem
 
@@ -32,19 +33,29 @@ header row. The `Coordinar un punto` action stays on the right. The subtitle rem
 header. The title appears exactly once and must remain readable without horizontal overflow at
 375 px.
 
+Immediately below the header, show a compact neutral emergency-context panel:
+
+- eyebrow: `Emergencia activa`;
+- title: `Respuesta al terremoto de Chocó`;
+- explanation: `Encuentra puntos de ayuda para zonas afectadas en Chocó, Caldas, Valle del Cauca,
+  Risaralda y Quindío.`
+
+This context appears before the filters and map. It does not create an event model, date selector,
+news feed, or fifth table.
+
 ### Mobile select menus
 
 Exactly these six location selectors use QSelect `behavior=menu` instead of the mobile full-screen
 dialog: home `Departamento` and `Ciudad / Municipio`; creation `Departamento afectado`,
 `Ciudad / Municipio afectado`, `Departamento del punto`, and `Ciudad / Municipio del punto`.
-Their popup content uses `max-height: 50vh; overflow-y: auto` and remains scrollable. Remove
+Their popup content uses `max-height: 40vh; overflow-y: auto` and remains scrollable. Remove
 `options-dense`: normal option height is easier to tap. Do not introduce global CSS, persistent
 menus, or `options-cover`.
 
 The creation multi-select `Necesidades` is the seventh selector in scope and receives the same menu
 behavior and height cap because it can also be a long list. Single-value menus close after a
 selection. The needs menu may remain open while several needs are chosen and closes when the
-coordinator taps outside; its 50vh cap keeps the surrounding form visible. Dependent municipality
+coordinator taps outside; its 40vh cap keeps the surrounding form visible. Dependent municipality
 enable/reset behavior remains unchanged. Administration-page selects are outside this change.
 
 ### Successful publication
@@ -93,10 +104,54 @@ notifications, public pages, or tests as a real credential. Tests use synthetic 
 If creation fails, remain in the form state, allow correction and retry, and render no stale
 success link. Authorization is still checked immediately before the backend write.
 
+### Public point detail
+
+Replace the current flat column with a responsive page that has a white/slate neutral hierarchy:
+
+1. A back link `Volver al mapa`.
+2. One semantic level-one heading containing the point name and a separate description.
+3. A responsive two-column grid, stacked on mobile, with sections headed `Ayuda destinada a` and
+   `Recibe ayuda en`.
+4. A `Necesidades actuales` section with one row per need. Each row retains the complete textual
+   status and uses red, amber, or emerald only as a secondary status cue.
+5. An `Ubicación del punto de recepción` section containing the physical-coordinate map.
+
+Use `role=heading` with correct `aria-level` on dynamic NiceGUI labels rather than interpolating
+untrusted point content into raw HTML. Cards use subtle `border-slate-200`, white or slate surfaces,
+and no oversized shadow or decorative color block.
+
+### Single-point administration
+
+Organize the private page into `Información pública`, `Necesidades`, `Agregar necesidad`, and
+`Zona de peligro`. Show the point name below the page title. Preserve the existing operations and
+token checks; this is a presentation and accidental-action-safety change, not a new permission
+model.
+
+Action palette:
+
+- `Guardar información` and `Guardar estado`: filled `green-9`;
+- `Agregar necesidad`: outlined `green-9`;
+- `Quitar`: outlined `red-9`;
+- `Desactivar punto`: filled `red-9` only inside `Zona de peligro`.
+
+Every action keeps explicit text and a minimum 44 px touch target. Red is reserved for destructive
+actions; the interface never relies on color alone.
+
+`Quitar` and `Desactivar punto` open confirmation dialogs. Cancel performs no backend call.
+Confirmation performs exactly one call. Dialogs and notifications must not display the
+`admin_token`. The status selector uses the same complete public status text, including
+`— todavía se necesita` and `— no enviar más`.
+
+The admin `Estado` and `Agregar necesidad` selects use `behavior=menu`; the long category menu is
+capped at `40vh` with scrolling and normal-height options.
+
 ## Code boundaries
 
 - `src/frontend/pages/create_help_point.py`: form/success states, duplicate-submit guard, copy UI.
 - `src/frontend/pages/home.py`: compact header and bounded filter selects.
+- `src/frontend/pages/help_point_detail.py`: semantic public-detail sections and status rows.
+- `src/frontend/pages/manage_help_point.py`: administrative sections, action palette, and
+  destructive confirmations.
 - `src/frontend/app.py`: pass the validated public base URL to the creation route.
 - `src/frontend/runtime.py`: supply `ApplicationSettings.app_base_url` without exposing secrets.
 - Frontend tests only; no backend, schema, dependency, or authentication changes.
@@ -104,7 +159,9 @@ success link. Authorization is still checked immediately before the backend writ
 ## Acceptance criteria
 
 - Pin and `¿Dónde ayudo?` share one header container; the title appears once.
-- Every long mobile selector uses a scrollable `behavior=menu` popup capped at `50vh`; location
+- The emergency panel appears before filters with the exact approved earthquake context and five
+  departments.
+- Every long mobile selector uses a scrollable `behavior=menu` popup capped at `40vh`; location
   options are not dense.
 - A successful create replaces the form with the private-link success screen.
 - The visible and copied values are the same absolute administration URL.
@@ -115,6 +172,13 @@ success link. Authorization is still checked immediately before the backend writ
   no additional backend or custom-category write.
 - Any failed write re-enables the form and never renders a private link.
 - `/crear` authorization, `admin_token` isolation, and public routes remain unchanged.
+- Public detail has one level-one heading and ordered level-two sections for destination,
+  reception, needs, and map; dynamic text is not inserted as raw HTML.
+- Administration has the four named sections, complete status copy, and the approved green/red
+  action palette.
+- Cancelling destructive confirmations invokes no handler; confirming invokes exactly one.
+- Admin selectors use bounded mobile menus and the private token never enters visible copy,
+  notifications, logs, or DOM identifiers.
 - Frontend tests and the full configured suite pass; browser checks cover 1280x900, 390x844, and
   375x667 with no horizontal overflow or console errors.
 
@@ -122,5 +186,4 @@ success link. Authorization is still checked immediately before the backend writ
 
 - Coordinator accounts, link recovery, email/SMS delivery, QR codes, sharing APIs, analytics, or
   another persistence table.
-- Redesigning administration or public point detail pages.
 - Adding a clipboard, select, or responsive-layout dependency.

@@ -59,8 +59,15 @@ Fuente: `docs/product/mvp.md`.
   referencia y permite seleccionar varias necesidades.
 - [x] **Buscar en el mapa** consulta Nominatim solo por acción explícita; éxito mueve el marker y
   fallo conserva la dirección y permite ubicarlo manualmente.
+- [x] Los cuatro selects de ubicación y el multiselect **Necesidades** usan menús `behavior=menu`
+  desplazables, con altura máxima `40vh` y opciones de altura normal.
 - [x] Permite crear una categoría no global cuando no existe.
-- [x] Al publicar muestra el enlace administrativo privado una sola vez de forma clara.
+- [x] La publicación exitosa reemplaza el formulario por una pantalla con URL administrativa
+  absoluta, readonly y seleccionable, **Copiar enlace** y **Abrir administración**.
+- [x] Un guard evita escrituras repetidas durante y después del éxito; un fallo reactiva el
+  formulario sin mostrar un enlace privado.
+- [x] Copiar confirma éxito o fallo con mensajes genéricos; la URL visible queda como fallback
+  manual y ninguna notificación expone URL ni token.
 - [x] `src/frontend/` no accede a PostgreSQL.
 
 ### F1-05 — Vista pública — COMPLETADA
@@ -68,6 +75,12 @@ Fuente: `docs/product/mvp.md`.
 - [x] Lista únicamente Puntos activos con sus necesidades y estados textuales.
 - [x] Usa el título exacto **¿Dónde ayudo?**, superficie principal blanca y panel de filtros gris
   neutro con selectores blancos.
+- [x] El pin y el título comparten la fila del encabezado; el panel anterior a los filtros muestra
+  exactamente **Emergencia activa**, **Respuesta al terremoto de Chocó** y
+  **Encuentra puntos de ayuda para zonas afectadas en Chocó, Caldas, Valle del Cauca, Risaralda y
+  Quindío.**
+- [x] Los dos filtros del inicio usan menús `behavior=menu` desplazables de máximo `40vh`, con
+  opciones de altura normal.
 - [x] Inicia con el mapa y filtra la zona afectada únicamente por Caldas, Chocó, Quindío, Risaralda
   y Valle del Cauca, con ciudad o municipio dependiente.
 - [x] El mapa conserva las coordenadas físicas; lista, popup y detalle distinguen **Recibe ayuda
@@ -75,15 +88,23 @@ Fuente: `docs/product/mvp.md`.
 - [x] Las categorías aparecen dentro de cada Punto, no como filtro público.
 - [x] No expone `admin_token` ni datos administrativos.
 - [x] Toda la fila compacta enlaza a `/puntos/{point_id}` y muestra únicamente contenido público del Punto activo, sin timestamp ni CTA visible.
+- [x] El detalle tiene un solo encabezado de nivel uno y secciones ordenadas para destino,
+  recepción, necesidades actuales y mapa, sin insertar contenido dinámico como HTML crudo.
 - [x] La lista es legible en viewport móvil.
 
-### F1-06 — Administración de un Punto
+### F1-06 — Administración de un Punto — COMPLETADA
 
-- [ ] El enlace privado administra solamente su Punto.
-- [ ] Permite editar descripción y contacto.
-- [ ] Permite agregar, quitar y cambiar el estado de necesidades.
-- [ ] Permite desactivar el Punto; deja de aparecer públicamente.
-- [ ] Pruebas cubren agregar, quitar, cambiar estado y desactivar.
+- [x] El enlace privado administra solamente su Punto.
+- [x] Organiza **Información pública**, **Necesidades**, **Agregar necesidad** y **Zona de peligro**.
+- [x] Permite editar descripción y contacto con acciones verdes explícitas.
+- [x] Permite agregar, quitar y cambiar el estado de necesidades con texto completo y targets
+  táctiles de mínimo 44 px.
+- [x] **Quitar** y **Desactivar punto** usan acciones rojas y confirmaciones; cancelar no muta y
+  confirmar ejecuta exactamente una operación.
+- [x] Los selects administrativos en alcance usan `behavior=menu`; el catálogo de necesidades se
+  limita a `40vh` con scroll y opciones de altura normal.
+- [x] Permite desactivar el Punto; deja de aparecer públicamente.
+- [x] Pruebas focales cubren agregar, quitar, cambiar estado, desactivar, paleta y confirmaciones.
 
 ### F1-07 — Gate de Fase 1
 
