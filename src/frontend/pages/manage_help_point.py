@@ -8,7 +8,7 @@ from uuid import UUID
 
 from nicegui import ui
 
-from backend.domain.models import HelpPoint, NeedStatus
+from backend.domain.models import HelpPoint, HelpPointCategory, NeedStatus
 
 logger = logging.getLogger(__name__)
 
@@ -18,6 +18,7 @@ RemoveNeedHandler = Callable[[HelpPoint, str, UUID], HelpPoint]
 ChangeNeedStatusHandler = Callable[[HelpPoint, str, UUID, NeedStatus], HelpPoint]
 DeactivateHelpPointHandler = Callable[[HelpPoint, str], HelpPoint]
 UpdateHelpPointInfoHandler = Callable[[HelpPoint, str, str, str, str, str | None], HelpPoint]
+UpdateHelpPointCategoryHandler = Callable[[HelpPoint, str, HelpPointCategory], HelpPoint]
 
 
 def category_name(categories: Mapping[str, UUID], category_id: UUID) -> str:
@@ -33,6 +34,10 @@ def status_options() -> dict[str, NeedStatus]:
         "Hay ayuda en camino — todavía se necesita": NeedStatus.HELP_ON_THE_WAY,
         "Cubierto — no enviar más": NeedStatus.COVERED,
     }
+
+
+def category_options() -> dict[HelpPointCategory, str]:
+    return {category: category.value for category in HelpPointCategory}
 
 
 def add_need_to_point(
@@ -90,6 +95,15 @@ def update_point_info(
     )
 
 
+def update_point_category(
+    point: HelpPoint,
+    admin_token: str,
+    category: HelpPointCategory,
+    update_help_point_category: UpdateHelpPointCategoryHandler,
+) -> HelpPoint:
+    return update_help_point_category(point, admin_token, category)
+
+
 def render_manage_help_point(
     point: HelpPoint,
     admin_token: str,
@@ -99,6 +113,7 @@ def render_manage_help_point(
     change_need_status: ChangeNeedStatusHandler,
     deactivate_help_point: DeactivateHelpPointHandler,
     update_help_point_info: UpdateHelpPointInfoHandler,
+    update_help_point_category: UpdateHelpPointCategoryHandler,
 ) -> None:
     """Render administration controls using injected backend operations only."""
     with ui.column().classes("w-full max-w-md md:max-w-2xl mx-auto gap-4 p-4"):
@@ -162,6 +177,34 @@ def render_manage_help_point(
                                 coordinator_contact.value or "",
                                 additional_affected_areas.value or None,
                                 update_help_point_info,
+                            )
+                        ),
+                    ).classes(
+                        "w-full min-h-[44px]"
+                    ).props("unelevated color=primary")
+
+                with ui.card().classes(
+                    "w-full gap-3 rounded-2xl border border-slate-200 bg-white p-4"
+                ):
+                    ui.label("Categoría del punto").classes(
+                        "text-lg font-semibold text-slate-900"
+                    ).props("role=heading aria-level=2")
+                    category_select = ui.select(
+                        options=category_options(),
+                        label="Categoría del punto",
+                        value=point.category,
+                    ).classes("w-full").props(
+                        "outlined dense behavior=menu color=blue-grey-9 "
+                        "transition-show=none transition-hide=none"
+                    )
+                    ui.button(
+                        "Guardar categoría",
+                        on_click=lambda: apply(
+                            lambda: update_point_category(
+                                point,
+                                admin_token,
+                                category_select.value,
+                                update_help_point_category,
                             )
                         ),
                     ).classes(

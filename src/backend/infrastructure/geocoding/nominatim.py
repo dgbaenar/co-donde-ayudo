@@ -15,6 +15,13 @@ from urllib.request import Request, urlopen
 class GeocodedLocation:
     latitude: float
     longitude: float
+    is_low_confidence: bool
+
+
+# Nominatim's "importance" field reflects a place's notability, not geocoding
+# precision, but low values still correlate with ambiguous or poor matches. This
+# threshold is a heuristic; tune it after observing real Colombian address results.
+LOW_CONFIDENCE_IMPORTANCE_THRESHOLD = 0.3
 
 
 def open_request(request: Request) -> Any:
@@ -77,6 +84,7 @@ class NominatimGeocoder:
             match = json.loads(payload)[0]
             latitude = float(match["lat"])
             longitude = float(match["lon"])
+            importance = float(match.get("importance", 0.0))
             if not (
                 math.isfinite(latitude)
                 and math.isfinite(longitude)
@@ -84,7 +92,11 @@ class NominatimGeocoder:
                 and -180 <= longitude <= 180
             ):
                 return None
-            return GeocodedLocation(latitude=latitude, longitude=longitude)
+            return GeocodedLocation(
+                latitude=latitude,
+                longitude=longitude,
+                is_low_confidence=importance < LOW_CONFIDENCE_IMPORTANCE_THRESHOLD,
+            )
         except Exception:
             return None
 

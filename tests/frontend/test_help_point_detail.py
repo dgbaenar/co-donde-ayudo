@@ -4,7 +4,7 @@ import unittest
 from unittest.mock import patch
 from uuid import uuid4
 
-from backend.domain.models import Need, NeedStatus, PublicHelpPoint
+from backend.domain.models import HelpPointCategory, Need, NeedStatus, PublicHelpPoint
 from frontend.pages import help_point_detail
 
 
@@ -121,7 +121,7 @@ class HelpPointDetailTests(unittest.TestCase):
         self.water_category_id = uuid4()
         self.food_category_id = uuid4()
         self.shelter_category_id = uuid4()
-        self.point = PublicHelpPoint(
+        self.point = PublicHelpPoint(category=HelpPointCategory.RESCUE_OPERATIONS,
             id=uuid4(),
             name="Parque Central",
             description="Familias evacuadas reciben apoyo.",
@@ -288,7 +288,7 @@ class HelpPointDetailTests(unittest.TestCase):
         )
 
     def test_additional_affected_areas_renders_as_second_line_when_present(self) -> None:
-        point_with_extra_areas = PublicHelpPoint(
+        point_with_extra_areas = PublicHelpPoint(category=HelpPointCategory.RESCUE_OPERATIONS,
             id=self.point.id,
             name=self.point.name,
             description=self.point.description,
@@ -340,7 +340,7 @@ class HelpPointDetailTests(unittest.TestCase):
     def test_affected_area_shows_whole_department_when_affected_city_is_none(
         self,
     ) -> None:
-        department_wide_point = PublicHelpPoint(
+        department_wide_point = PublicHelpPoint(category=HelpPointCategory.RESCUE_OPERATIONS,
             id=self.point.id,
             name=self.point.name,
             description=self.point.description,
@@ -374,7 +374,7 @@ class HelpPointDetailTests(unittest.TestCase):
         self.assertFalse(any("None" in label for label in labels))
 
     def test_important_links_section_renders_each_link_when_present(self) -> None:
-        point_with_links = PublicHelpPoint(
+        point_with_links = PublicHelpPoint(category=HelpPointCategory.RESCUE_OPERATIONS,
             id=self.point.id,
             name=self.point.name,
             description=self.point.description,
@@ -477,7 +477,7 @@ class VoyAAyudarDialogTests(unittest.TestCase):
         self.needs_help_id = uuid4()
         self.help_on_the_way_id = uuid4()
         self.covered_id = uuid4()
-        self.point = PublicHelpPoint(
+        self.point = PublicHelpPoint(category=HelpPointCategory.RESCUE_OPERATIONS,
             id=uuid4(),
             name="Parque Central",
             description="Familias evacuadas reciben apoyo.",

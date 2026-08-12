@@ -12,6 +12,14 @@ class NeedStatus(str, Enum):
     COVERED = "COVERED"
 
 
+class HelpPointCategory(str, Enum):
+    """Fixed classification of the help point itself (not of its individual needs)."""
+
+    DONATION_COLLECTION = "Recolección de donaciones"
+    DEBRIS_REMOVAL = "Remoción de escombros"
+    RESCUE_OPERATIONS = "Labores de rescate"
+
+
 def validate_required(value: str, field: str, maximum: int) -> None:
     if not value.strip():
         raise ValueError(f"{field} is required")
@@ -42,6 +50,7 @@ class CreateHelpPoint:
     coordinator_name: str
     coordinator_contact: str
     category_ids: tuple[UUID, ...]
+    category: HelpPointCategory
     additional_affected_areas: str | None = None
     important_links: tuple[str, ...] = ()
 
@@ -73,6 +82,8 @@ class CreateHelpPoint:
             raise ValueError("at least one category is required")
         if len(set(self.category_ids)) != len(self.category_ids):
             raise ValueError("category IDs must be unique")
+        if not isinstance(self.category, HelpPointCategory):
+            raise ValueError("category must be a valid HelpPointCategory")
 
 
 @dataclass(frozen=True, slots=True)
@@ -111,6 +122,7 @@ class HelpPoint:
     admin_token: str
     active: bool
     needs: tuple[Need, ...]
+    category: HelpPointCategory
     updated_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     additional_affected_areas: str | None = None
     important_links: tuple[str, ...] = ()
@@ -132,6 +144,7 @@ class PublicHelpPoint:
     coordinator_contact: str
     active: bool
     needs: tuple[Need, ...]
+    category: HelpPointCategory
     updated_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     additional_affected_areas: str | None = None
     important_links: tuple[str, ...] = ()

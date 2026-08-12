@@ -4,13 +4,14 @@ import unittest
 from datetime import UTC, datetime
 from uuid import uuid4
 
-from backend.domain.models import Commitment, HelpPoint, Need, NeedStatus
+from backend.domain.models import Commitment, HelpPoint, HelpPointCategory, Need, NeedStatus
 from frontend.pages import manage_help_point
 from frontend.pages.manage_help_point import (
     add_need_to_point,
     change_need_state,
     deactivate_point,
     remove_need_from_point,
+    update_point_category,
     update_point_info,
 )
 
@@ -105,6 +106,7 @@ class ManageHelpPointTests(unittest.TestCase):
             admin_token=self.token,
             active=True,
             needs=(self.need,),
+            category=HelpPointCategory.DONATION_COLLECTION,
         )
 
     def test_add_need_delegates_token_and_catalog_category_id(self) -> None:
@@ -227,6 +229,26 @@ class ManageHelpPointTests(unittest.TestCase):
             [(self.point, self.token, "Nuevo nombre", "Nueva descripción", "Nuevo contacto", None)],
         )
 
+    def test_update_category_delegates_token_and_selected_category(self) -> None:
+        calls = []
+
+        def update_category(point, token, category):
+            calls.append((point, token, category))
+            return point
+
+        updated = update_point_category(
+            self.point,
+            self.token,
+            HelpPointCategory.RESCUE_OPERATIONS,
+            update_category,
+        )
+
+        self.assertIs(updated, self.point)
+        self.assertEqual(
+            calls,
+            [(self.point, self.token, HelpPointCategory.RESCUE_OPERATIONS)],
+        )
+
 
 class ManageHelpPointInfoEditingTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -248,6 +270,7 @@ class ManageHelpPointInfoEditingTests(unittest.TestCase):
             active=True,
             needs=(),
             additional_affected_areas="Zarzal",
+            category=HelpPointCategory.DONATION_COLLECTION,
         )
         self.fake_ui = RecordingUi()
         self.original_ui = manage_help_point.ui
@@ -280,6 +303,7 @@ class ManageHelpPointInfoEditingTests(unittest.TestCase):
             lambda *_args: self.point,
             lambda *_args: self.point,
             lambda *_args: self.point,
+            lambda *_args: self.point,
         )
 
         self.assertEqual(self._additional_areas_field().value, "Zarzal")
@@ -289,6 +313,7 @@ class ManageHelpPointInfoEditingTests(unittest.TestCase):
             self.point,
             self.token,
             {},
+            lambda *_args: self.point,
             lambda *_args: self.point,
             lambda *_args: self.point,
             lambda *_args: self.point,
@@ -309,6 +334,7 @@ class ManageHelpPointInfoEditingTests(unittest.TestCase):
             self.point,
             self.token,
             {},
+            lambda *_args: self.point,
             lambda *_args: self.point,
             lambda *_args: self.point,
             lambda *_args: self.point,
@@ -343,12 +369,14 @@ class ManageHelpPointInfoEditingTests(unittest.TestCase):
             admin_token=self.point.admin_token,
             active=self.point.active,
             needs=self.point.needs,
+            category=HelpPointCategory.DONATION_COLLECTION,
         )
 
         manage_help_point.render_manage_help_point(
             point_without_extra_areas,
             self.token,
             {},
+            lambda *_args: point_without_extra_areas,
             lambda *_args: point_without_extra_areas,
             lambda *_args: point_without_extra_areas,
             lambda *_args: point_without_extra_areas,
@@ -374,6 +402,7 @@ class ManageHelpPointInfoEditingTests(unittest.TestCase):
             lambda *_args: self.point,
             lambda *_args: self.point,
             update_info,
+            lambda *_args: self.point,
         )
 
         self._additional_areas_field().value = "Roldanillo y Zarzal"
@@ -411,6 +440,7 @@ class ManageHelpPointInfoEditingTests(unittest.TestCase):
             lambda *_args: self.point,
             lambda *_args: self.point,
             update_info,
+            lambda *_args: self.point,
         )
 
         self._additional_areas_field().value = ""
@@ -435,14 +465,90 @@ class ManageHelpPointResponsivePresentationTests(unittest.TestCase):
             },
         )
 
+    def test_category_options_map_each_enum_member_to_its_spanish_label(self) -> None:
+        self.assertEqual(
+            manage_help_point.category_options(),
+            {
+                HelpPointCategory.DONATION_COLLECTION: "Recolección de donaciones",
+                HelpPointCategory.DEBRIS_REMOVAL: "Remoción de escombros",
+                HelpPointCategory.RESCUE_OPERATIONS: "Labores de rescate",
+            },
+        )
+
+    def test_category_select_preloads_current_value_and_saves_selected_category(
+        self,
+    ) -> None:
+        point = HelpPoint(
+            id=uuid4(),
+            name="Parque",
+            description="Apoyo",
+            city="Cali",
+            department="Valle",
+            address="Calle 5",
+            affected_city="Roldanillo",
+            affected_department="Valle del Cauca",
+            latitude=3.0,
+            longitude=-76.0,
+            coordinator_name="Ana",
+            coordinator_contact="Contacto",
+            admin_token="private-token",
+            active=True,
+            needs=(),
+            category=HelpPointCategory.DONATION_COLLECTION,
+        )
+        calls, fake_ui = [], RecordingUi()
+        original_ui = manage_help_point.ui
+        manage_help_point.ui = fake_ui
+
+        def update_category(point, token, category):
+            calls.append((point, token, category))
+            return point
+
+        try:
+            manage_help_point.render_manage_help_point(
+                point,
+                "private-token",
+                {},
+                lambda *_args: point,
+                lambda *_args: point,
+                lambda *_args: point,
+                lambda *_args: point,
+                lambda *_args: point,
+                update_category,
+            )
+            category_select = next(
+                element
+                for element in fake_ui.elements
+                if element.kind == "select"
+                and element.kwargs.get("label") == "Categoría del punto"
+            )
+            self.assertEqual(
+                category_select.kwargs["value"], HelpPointCategory.DONATION_COLLECTION
+            )
+            category_select.value = HelpPointCategory.RESCUE_OPERATIONS
+            save = next(
+                element
+                for element in fake_ui.elements
+                if element.kind == "button"
+                and element.args == ("Guardar categoría",)
+            )
+            save.kwargs["on_click"]()
+        finally:
+            manage_help_point.ui = original_ui
+
+        self.assertEqual(
+            calls,
+            [(point, "private-token", HelpPointCategory.RESCUE_OPERATIONS)],
+        )
+
     def test_renders_named_sections_action_palette_complete_statuses_and_menus(self) -> None:
         category_id, need_id = uuid4(), uuid4()
-        point = HelpPoint(id=uuid4(), name="Parque", description="Apoyo", city="Cali", department="Valle", address="Calle 5 # 10-20", affected_city="Roldanillo", affected_department="Valle del Cauca", latitude=3.0, longitude=-76.0, coordinator_name="Ana", coordinator_contact="Contacto", admin_token="private-token", active=True, needs=(Need(id=need_id, category_id=category_id, status=NeedStatus.NEEDS_HELP),))
+        point = HelpPoint(id=uuid4(), name="Parque", description="Apoyo", city="Cali", department="Valle", address="Calle 5 # 10-20", affected_city="Roldanillo", affected_department="Valle del Cauca", latitude=3.0, longitude=-76.0, coordinator_name="Ana", coordinator_contact="Contacto", admin_token="private-token", active=True, needs=(Need(id=need_id, category_id=category_id, status=NeedStatus.NEEDS_HELP),), category=HelpPointCategory.DONATION_COLLECTION)
         calls, fake_ui = [], RecordingUi()
         original_ui = manage_help_point.ui
         manage_help_point.ui = fake_ui
         try:
-            manage_help_point.render_manage_help_point(point, "private-token", {"Agua": category_id}, lambda *_args: point, lambda *_args: point, lambda *_args: calls.append(_args) or point, lambda *_args: point, lambda *_args: point)
+            manage_help_point.render_manage_help_point(point, "private-token", {"Agua": category_id}, lambda *_args: point, lambda *_args: point, lambda *_args: calls.append(_args) or point, lambda *_args: point, lambda *_args: point, lambda *_args: point)
             selector = next(element for element in fake_ui.elements if element.kind == "select" and element.kwargs.get("label") == "Estado")
             selector.value = NeedStatus.COVERED
             save = next(element for element in fake_ui.elements if element.kind == "button" and element.args[0] == "Guardar estado")
@@ -531,7 +637,7 @@ class ManageHelpPointResponsivePresentationTests(unittest.TestCase):
     def test_remove_and_deactivate_require_explicit_confirmation_without_token_copy(self) -> None:
         category_id, need_id = uuid4(), uuid4()
         token = "synthetic-private-token"
-        point = HelpPoint(id=uuid4(), name="Parque", description="Apoyo", city="Cali", department="Valle", address="Calle 5", affected_city="Roldanillo", affected_department="Valle del Cauca", latitude=3.0, longitude=-76.0, coordinator_name="Ana", coordinator_contact="Contacto", admin_token=token, active=True, needs=(Need(id=need_id, category_id=category_id, status=NeedStatus.NEEDS_HELP),))
+        point = HelpPoint(id=uuid4(), name="Parque", description="Apoyo", city="Cali", department="Valle", address="Calle 5", affected_city="Roldanillo", affected_department="Valle del Cauca", latitude=3.0, longitude=-76.0, coordinator_name="Ana", coordinator_contact="Contacto", admin_token=token, active=True, needs=(Need(id=need_id, category_id=category_id, status=NeedStatus.NEEDS_HELP),), category=HelpPointCategory.DONATION_COLLECTION)
         remove_calls, deactivate_calls = [], []
         fake_ui = RecordingUi()
         original_ui = manage_help_point.ui
@@ -545,6 +651,7 @@ class ManageHelpPointResponsivePresentationTests(unittest.TestCase):
                 lambda *args: remove_calls.append(args) or point,
                 lambda *_args: point,
                 lambda *args: deactivate_calls.append(args) or point,
+                lambda *_args: point,
                 lambda *_args: point,
             )
             remove_launch = next(
@@ -642,7 +749,7 @@ class ManageHelpPointResponsivePresentationTests(unittest.TestCase):
 
     def test_handler_error_notification_is_generic_and_omits_token(self) -> None:
         token = "synthetic-private-token"
-        point = HelpPoint(id=uuid4(), name="Parque", description="Apoyo", city="Cali", department="Valle", address="Calle 5", affected_city="Roldanillo", affected_department="Valle del Cauca", latitude=3.0, longitude=-76.0, coordinator_name="Ana", coordinator_contact="Contacto", admin_token=token, active=True, needs=())
+        point = HelpPoint(id=uuid4(), name="Parque", description="Apoyo", city="Cali", department="Valle", address="Calle 5", affected_city="Roldanillo", affected_department="Valle del Cauca", latitude=3.0, longitude=-76.0, coordinator_name="Ana", coordinator_contact="Contacto", admin_token=token, active=True, needs=(), category=HelpPointCategory.DONATION_COLLECTION)
         fake_ui = RecordingUi()
         original_ui = manage_help_point.ui
         manage_help_point.ui = fake_ui
@@ -658,6 +765,7 @@ class ManageHelpPointResponsivePresentationTests(unittest.TestCase):
                 lambda *_args: (_ for _ in ()).throw(
                     PermissionError(f"invalid token {token}")
                 ),
+                lambda *_args: point,
             )
             next(
                 element
@@ -681,7 +789,7 @@ class ManageHelpPointResponsivePresentationTests(unittest.TestCase):
 
     def test_unexpected_handler_error_is_generic_and_does_not_propagate(self) -> None:
         token = "synthetic-private-token"
-        point = HelpPoint(id=uuid4(), name="Parque", description="Apoyo", city="Cali", department="Valle", address="Calle 5", affected_city="Roldanillo", affected_department="Valle del Cauca", latitude=3.0, longitude=-76.0, coordinator_name="Ana", coordinator_contact="Contacto", admin_token=token, active=True, needs=())
+        point = HelpPoint(id=uuid4(), name="Parque", description="Apoyo", city="Cali", department="Valle", address="Calle 5", affected_city="Roldanillo", affected_department="Valle del Cauca", latitude=3.0, longitude=-76.0, coordinator_name="Ana", coordinator_contact="Contacto", admin_token=token, active=True, needs=(), category=HelpPointCategory.DONATION_COLLECTION)
         caught_errors = []
         fake_ui = RecordingUi()
         original_ui = manage_help_point.ui
@@ -698,6 +806,7 @@ class ManageHelpPointResponsivePresentationTests(unittest.TestCase):
                 lambda *_args: (_ for _ in ()).throw(
                     RuntimeError(f"database unavailable {token}")
                 ),
+                lambda *_args: point,
             )
             try:
                 next(
@@ -737,6 +846,7 @@ class ManageHelpPointCommitmentsTests(unittest.TestCase):
             point,
             "private-token",
             {},
+            lambda *_args: point,
             lambda *_args: point,
             lambda *_args: point,
             lambda *_args: point,
@@ -786,6 +896,7 @@ class ManageHelpPointCommitmentsTests(unittest.TestCase):
             admin_token="private-token",
             active=True,
             needs=(need,),
+            category=HelpPointCategory.DONATION_COLLECTION,
         )
 
         self._render(point)
@@ -819,6 +930,7 @@ class ManageHelpPointCommitmentsTests(unittest.TestCase):
             admin_token="private-token",
             active=True,
             needs=(need,),
+            category=HelpPointCategory.DONATION_COLLECTION,
         )
 
         self._render(point)

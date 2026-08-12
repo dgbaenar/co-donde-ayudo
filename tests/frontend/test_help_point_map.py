@@ -3,7 +3,7 @@ from __future__ import annotations
 import unittest
 from uuid import uuid4
 
-from backend.domain.models import Need, NeedStatus, PublicHelpPoint
+from backend.domain.models import HelpPointCategory, Need, NeedStatus, PublicHelpPoint
 from frontend.components import help_point_map
 
 
@@ -60,7 +60,7 @@ class HelpPointMapTests(unittest.TestCase):
     def point(
         self, *, active=True, name="Parque Central", affected_city="Roldanillo & norte"
     ) -> PublicHelpPoint:
-        return PublicHelpPoint(
+        return PublicHelpPoint(category=HelpPointCategory.RESCUE_OPERATIONS,
             id=uuid4(),
             name=name,
             description="Se requiere apoyo.",

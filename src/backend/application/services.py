@@ -13,6 +13,7 @@ from backend.domain.models import (
     CreateHelpPoint,
     CreatedHelpPoint,
     HelpPoint,
+    HelpPointCategory,
     Need,
     NeedStatus,
     PublicHelpPoint,
@@ -88,6 +89,7 @@ class HelpPointService:
             admin_token=token,
             active=True,
             needs=needs,
+            category=command.category,
             updated_at=datetime.now(UTC),
             additional_affected_areas=(
                 command.additional_affected_areas.strip()
@@ -134,6 +136,17 @@ class HelpPointService:
     def deactivate_help_point(self, point: HelpPoint, admin_token: str) -> HelpPoint:
         self._require_admin_token(point, admin_token)
         return self._repository.update_help_point(replace(point, active=False))
+
+    def update_help_point_category(
+        self,
+        point: HelpPoint,
+        admin_token: str,
+        category: HelpPointCategory,
+    ) -> HelpPoint:
+        self._require_admin_token(point, admin_token)
+        if not isinstance(category, HelpPointCategory):
+            raise ValueError("category must be a valid HelpPointCategory")
+        return self._repository.update_help_point(replace(point, category=category))
 
     def list_active_categories(self) -> Mapping[str, UUID]:
         return self._repository.list_active_categories()
@@ -244,6 +257,7 @@ class HelpPointService:
             coordinator_contact=point.coordinator_contact,
             active=point.active,
             needs=tuple(replace(need, commitments=()) for need in point.needs),
+            category=point.category,
             updated_at=point.updated_at,
             additional_affected_areas=point.additional_affected_areas,
             important_links=point.important_links,

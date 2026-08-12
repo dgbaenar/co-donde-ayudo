@@ -22,6 +22,7 @@ OPTIONAL_AFFECTED_CITY_MIGRATION = (
     ALEMBIC_ROOT / "versions/0005_help_point_optional_affected_city.py"
 )
 IMPORTANT_LINKS_MIGRATION = ALEMBIC_ROOT / "versions/0006_help_point_important_links.py"
+CATEGORY_MIGRATION = ALEMBIC_ROOT / "versions/0007_help_point_category.py"
 EXPECTED_TABLES = {"help_points", "need_categories", "needs", "commitments"}
 
 
@@ -81,6 +82,17 @@ def load_optional_affected_city_migration():
 def load_important_links_migration():
     specification = importlib.util.spec_from_file_location(
         "help_point_important_links_migration", IMPORTANT_LINKS_MIGRATION
+    )
+    assert specification is not None
+    assert specification.loader is not None
+    module = importlib.util.module_from_spec(specification)
+    specification.loader.exec_module(module)
+    return module
+
+
+def load_category_migration():
+    specification = importlib.util.spec_from_file_location(
+        "help_point_category_migration", CATEGORY_MIGRATION
     )
     assert specification is not None
     assert specification.loader is not None
@@ -373,7 +385,7 @@ class MigrationTests(unittest.TestCase):
         self.assertEqual(call_args.kwargs["existing_type"].length, 500)
         self.assertEqual(call_args.kwargs["type_"].length, 32)
 
-    def test_important_links_migration_is_the_single_alembic_head(self) -> None:
+    def test_category_migration_is_the_single_alembic_head(self) -> None:
         environment = dict(os.environ)
         environment["PYTHONPATH"] = str(SOURCE_ROOT)
         result = subprocess.run(
@@ -387,7 +399,7 @@ class MigrationTests(unittest.TestCase):
 
         self.assertEqual(result.returncode, 0, result.stderr)
         heads = [line.split()[0] for line in result.stdout.splitlines() if line.strip()]
-        self.assertEqual(heads, ["0006_help_point_important_links"])
+        self.assertEqual(heads, ["0007_help_point_category"])
 
     def test_optional_affected_city_migration_follows_widen_revision_without_new_tables(
         self,
@@ -487,6 +499,73 @@ class MigrationTests(unittest.TestCase):
         self.assertEqual(
             operations.drop_column.call_args_list,
             [call("help_points", "enlaces_importantes")],
+        )
+
+    def test_category_migration_follows_important_links_revision_without_new_tables(self) -> None:
+        self.assertTrue(CATEGORY_MIGRATION.is_file())
+        migration = load_category_migration()
+        tree = ast.parse(CATEGORY_MIGRATION.read_text(encoding="utf-8"))
+        create_table_calls = [
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "create_table"
+        ]
+
+        self.assertEqual(migration.revision, "0007_help_point_category")
+        self.assertEqual(migration.down_revision, "0006_help_point_important_links")
+        self.assertEqual(create_table_calls, [])
+
+    def test_category_migration_upgrade_backfills_and_enforces_not_null(self) -> None:
+        migration = load_category_migration()
+
+        with patch.object(migration, "op") as operations:
+            migration.upgrade()
+
+        [call_args] = operations.add_column.call_args_list
+        self.assertEqual(call_args.args[0], "help_points")
+        column = call_args.args[1]
+        self.assertEqual(column.name, "categoria")
+        self.assertTrue(column.nullable)
+        backfill_sql = str(operations.execute.call_args_list[0].args[0])
+        self.assertIn("UPDATE help_points", backfill_sql)
+        self.assertIn("SET categoria = 'Labores de rescate'", backfill_sql)
+        self.assertIn("WHERE categoria IS NULL", backfill_sql)
+        self.assertEqual(
+            operations.alter_column.call_args_list,
+            [call("help_points", "categoria", nullable=False)],
+        )
+        [constraint_call] = operations.create_check_constraint.call_args_list
+        self.assertEqual(constraint_call.args[0], "help_points_categoria_check")
+        constraint_sql = str(
+            constraint_call.args[2].compile(compile_kwargs={"literal_binds": True})
+        )
+        for category in migration.CATEGORIES:
+            self.assertIn(category, constraint_sql)
+
+    def test_category_migration_backfill_default_is_labores_de_rescate(self) -> None:
+        migration = load_category_migration()
+
+        self.assertEqual(migration.BACKFILL_CATEGORY, "Labores de rescate")
+        self.assertEqual(
+            migration.CATEGORIES,
+            ("Recolección de donaciones", "Remoción de escombros", "Labores de rescate"),
+        )
+
+    def test_category_migration_downgrade_drops_constraint_and_column(self) -> None:
+        migration = load_category_migration()
+
+        with patch.object(migration, "op") as operations:
+            migration.downgrade()
+
+        self.assertEqual(
+            operations.drop_constraint.call_args_list,
+            [call("help_points_categoria_check", "help_points", type_="check")],
+        )
+        self.assertEqual(
+            operations.drop_column.call_args_list,
+            [call("help_points", "categoria")],
         )
 
     def test_commitment_note_constraint_belongs_only_to_commitments(self) -> None:

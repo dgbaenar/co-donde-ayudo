@@ -5,11 +5,19 @@ from dataclasses import replace
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
-from backend.domain.models import Commitment, HelpPoint, Need, NeedStatus
+from backend.domain.models import Commitment, HelpPoint, HelpPointCategory, Need, NeedStatus
 from backend.infrastructure.postgres.orm_models import CommitmentRow, HelpPointRow, NeedRow
 from backend.infrastructure.postgres.repository import PostgresHelpPointRepository
 
 FIXED_UPDATED_AT = datetime(2026, 8, 12, tzinfo=UTC)
+
+
+class ScalarResult:
+    def __init__(self, rows: list[object]) -> None:
+        self._rows = rows
+
+    def all(self) -> list[object]:
+        return self._rows
 
 
 class Session:
@@ -19,6 +27,8 @@ class Session:
         self.rows: dict[UUID, HelpPointRow] = {}
         self.need_rows: dict[UUID, NeedRow] = {}
         self.locked_for_update: dict[UUID, bool] = {}
+        self.help_point_rows: list[HelpPointRow] = []
+        self.scalars_statement = None
 
     def __enter__(self):
         return self
@@ -49,6 +59,10 @@ class Session:
             return self.need_rows.get(key)
         return self.rows.get(key)
 
+    def scalars(self, statement):
+        self.scalars_statement = statement
+        return ScalarResult(self.help_point_rows)
+
 
 class Factory:
     def __init__(self, session: Session) -> None:
@@ -62,6 +76,7 @@ def point(
     additional_affected_areas: str | None = None,
     affected_city: str | None = "Roldanillo",
     important_links: tuple[str, ...] = (),
+    category: HelpPointCategory = HelpPointCategory.DONATION_COLLECTION,
 ) -> HelpPoint:
     return HelpPoint(
         id=UUID("00000000-0000-0000-0000-000000000001"), name="Parque", description="Ayuda",
@@ -70,6 +85,7 @@ def point(
         latitude=3.4, longitude=-76.5, coordinator_name="Ana",
         coordinator_contact="Contacto", admin_token="x" * 40, active=True,
         needs=(Need(UUID("00000000-0000-0000-0000-000000000010"), UUID("00000000-0000-0000-0000-000000000100"), NeedStatus.NEEDS_HELP),),
+        category=category,
         updated_at=FIXED_UPDATED_AT,
         additional_affected_areas=additional_affected_areas,
         important_links=important_links,
@@ -137,6 +153,16 @@ class RepositoryTests(unittest.TestCase):
         self.assertEqual(row.enlaces_importantes, [])
         restored = PostgresHelpPointRepository._point_from_row(row)
         self.assertEqual(restored.important_links, ())
+
+    def test_create_round_trips_category(self) -> None:
+        session = Session()
+        source = point(category=HelpPointCategory.RESCUE_OPERATIONS)
+        PostgresHelpPointRepository(Factory(session)).create_help_point(source)
+
+        row = session.added[0]
+        self.assertEqual(row.categoria, "Labores de rescate")
+        restored = PostgresHelpPointRepository._point_from_row(row)
+        self.assertIs(restored.category, HelpPointCategory.RESCUE_OPERATIONS)
 
     def test_create_round_trips_affected_city_when_none(self) -> None:
         session = Session()
@@ -338,6 +364,24 @@ class RepositoryTests(unittest.TestCase):
         # must carry the new value, not the one the row had before the update.
         self.assertNotEqual(result.updated_at, old_time)
         self.assertEqual(result.updated_at, FIXED_UPDATED_AT)
+
+    def test_list_active_help_points_orders_newest_first_by_created_at(self) -> None:
+        session = Session()
+        older = point()
+        newer = replace(point(), id=UUID("00000000-0000-0000-0000-000000000002"))
+        older_row = PostgresHelpPointRepository._row_from_point(older)
+        newer_row = PostgresHelpPointRepository._row_from_point(newer)
+        older_row.created_at = datetime(2026, 1, 1, tzinfo=UTC)
+        newer_row.created_at = datetime(2026, 6, 1, tzinfo=UTC)
+        session.help_point_rows = [newer_row, older_row]
+
+        result = PostgresHelpPointRepository(Factory(session)).list_active_help_points()
+
+        self.assertIn(
+            "ORDER BY help_points.created_at DESC",
+            str(session.scalars_statement),
+        )
+        self.assertEqual([p.id for p in result], [newer_row.id, older_row.id])
 
     def test_create_commitment_on_help_on_the_way_row_keeps_status(self) -> None:
         session = Session()

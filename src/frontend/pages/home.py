@@ -125,6 +125,10 @@ def render_home(
                         )
                         with ui.column().classes("flex-1 min-w-0 gap-1"):
                             ui.label(point.name).classes("font-semibold text-slate-900")
+                            ui.label(point.category.value).classes(
+                                "text-xs font-medium text-emerald-800 bg-emerald-50 "
+                                "border border-emerald-200 rounded-full px-2 py-0.5 self-start"
+                            )
                             ui.label(
                                 f"Ayuda destinada a: {affected_area_text(point)}"
                             ).classes(

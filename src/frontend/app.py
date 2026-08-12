@@ -30,6 +30,7 @@ from frontend.pages.manage_help_point import (
     ChangeNeedStatusHandler,
     DeactivateHelpPointHandler,
     RemoveNeedHandler,
+    UpdateHelpPointCategoryHandler,
     UpdateHelpPointInfoHandler,
     render_manage_help_point,
 )
@@ -51,6 +52,7 @@ def create_app(
     deactivate_help_point: DeactivateHelpPointHandler,
     create_custom_category: CreateCustomCategoryHandler,
     update_help_point_info: UpdateHelpPointInfoHandler,
+    update_help_point_category: UpdateHelpPointCategoryHandler,
     authorize_coordinator_access: AuthorizeCoordinatorAccess,
     get_public_help_point: GetPublicHelpPoint,
     is_database_ready: Callable[[], bool],
@@ -125,4 +127,5 @@ def create_app(
             change_need_status,
             deactivate_help_point,
             update_help_point_info,
+            update_help_point_category,
         )

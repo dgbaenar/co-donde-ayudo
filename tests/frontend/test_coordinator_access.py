@@ -244,6 +244,7 @@ class CoordinatorAccessRouteTests(unittest.TestCase):
             "deactivate_help_point": lambda *_args: object(),
             "create_custom_category": lambda _name: self.fail("must not create category"),
             "update_help_point_info": lambda *_args: object(),
+            "update_help_point_category": lambda *_args: object(),
             "authorize_coordinator_access": lambda _key: False,
             "get_public_help_point": lambda _point_id: None,
             "is_database_ready": lambda: True,
