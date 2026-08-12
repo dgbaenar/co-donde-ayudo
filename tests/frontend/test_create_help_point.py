@@ -463,7 +463,6 @@ class CreateHelpPointResponsivePresentationTests(unittest.TestCase):
                     {},
                     lambda _command: self.fail(),
                     lambda _name: self.fail(),
-                    lambda: True,
                     lambda: ("Antioquia", "Valle del Cauca"),
                     self.list_localities,
                     lambda: self.AFFECTED_DEPARTMENTS,
@@ -673,7 +672,6 @@ class CreateHelpPointResponsivePresentationTests(unittest.TestCase):
                     lambda command: create_calls.append(command)
                     or SimpleNamespace(admin_token="synthetic-token"),
                     lambda _name: self.fail("empty custom category must not be created"),
-                    lambda: True,
                     lambda: ("Valle del Cauca",),
                     self.list_localities,
                     lambda: self.AFFECTED_DEPARTMENTS,
@@ -724,7 +722,6 @@ class CreateHelpPointResponsivePresentationTests(unittest.TestCase):
                     lambda command: create_calls.append(command)
                     or SimpleNamespace(admin_token="synthetic-token"),
                     lambda _name: self.fail("empty custom category must not be created"),
-                    lambda: True,
                     lambda: ("Valle del Cauca",),
                     self.list_localities,
                     lambda: self.AFFECTED_DEPARTMENTS,
@@ -763,7 +760,6 @@ class CreateHelpPointResponsivePresentationTests(unittest.TestCase):
                     lambda command: create_calls.append(command)
                     or SimpleNamespace(admin_token="synthetic-token"),
                     lambda _name: self.fail("empty custom category must not be created"),
-                    lambda: True,
                     lambda: ("Valle del Cauca",),
                     self.list_localities,
                     lambda: self.AFFECTED_DEPARTMENTS,
@@ -810,7 +806,6 @@ class CreateHelpPointResponsivePresentationTests(unittest.TestCase):
                     lambda command: create_calls.append(command)
                     or SimpleNamespace(admin_token="synthetic-token"),
                     lambda _name: self.fail("empty custom category must not be created"),
-                    lambda: True,
                     lambda: ("Valle del Cauca",),
                     self.list_localities,
                     lambda: self.AFFECTED_DEPARTMENTS,
@@ -860,7 +855,6 @@ class CreateHelpPointResponsivePresentationTests(unittest.TestCase):
                     {},
                     lambda _command: self.fail("must not publish"),
                     lambda _name: self.fail("must not create category"),
-                    lambda: True,
                     lambda: ("Antioquia", "Valle del Cauca"),
                     self.list_localities,
                     lambda: self.AFFECTED_DEPARTMENTS,
@@ -933,8 +927,7 @@ class CreateHelpPointResponsivePresentationTests(unittest.TestCase):
                             {},
                             lambda _command: self.fail("must not publish"),
                             lambda _name: self.fail("must not create category"),
-                            lambda: True,
-                            lambda: ("Valle del Cauca",),
+                                    lambda: ("Valle del Cauca",),
                             self.list_localities,
                             lambda: self.AFFECTED_DEPARTMENTS,
                             geocode,
@@ -1003,7 +996,6 @@ class CreateHelpPointResponsivePresentationTests(unittest.TestCase):
                     lambda command: create_calls.append(command)
                     or SimpleNamespace(admin_token="synthetic-token"),
                     lambda _name: self.fail("empty custom category must not be created"),
-                    lambda: True,
                     lambda: ("Valle del Cauca",),
                     self.list_localities,
                     lambda: self.AFFECTED_DEPARTMENTS,
@@ -1149,7 +1141,6 @@ class CreateHelpPointResponsivePresentationTests(unittest.TestCase):
                     lambda command: create_calls.append(command)
                     or SimpleNamespace(admin_token="synthetic-token"),
                     create_category,
-                    lambda: True,
                     lambda: ("Valle del Cauca",),
                     self.list_localities,
                     lambda: self.AFFECTED_DEPARTMENTS,
@@ -1203,7 +1194,6 @@ class CreateHelpPointResponsivePresentationTests(unittest.TestCase):
                     lambda command: create_calls.append(command)
                     or (_ for _ in ()).throw(ValueError("synthetic failure")),
                     lambda _name: self.fail("empty custom category must not be created"),
-                    lambda: True,
                     lambda: ("Valle del Cauca",),
                     self.list_localities,
                     lambda: self.AFFECTED_DEPARTMENTS,
@@ -1275,7 +1265,6 @@ class CreateHelpPointResponsivePresentationTests(unittest.TestCase):
                     {"Agua": category_id},
                     fail_create,
                     lambda _name: self.fail("empty custom category must not be created"),
-                    lambda: True,
                     lambda: ("Valle del Cauca",),
                     self.list_localities,
                     lambda: self.AFFECTED_DEPARTMENTS,
@@ -1348,7 +1337,6 @@ class CreateHelpPointResponsivePresentationTests(unittest.TestCase):
                     {},
                     lambda command: create_calls.append(command),
                     lambda category_name: custom_calls.append(category_name) or uuid4(),
-                    lambda: True,
                     lambda: ("Valle del Cauca",),
                     self.list_localities,
                     lambda: self.AFFECTED_DEPARTMENTS,
@@ -1388,48 +1376,6 @@ class CreateHelpPointResponsivePresentationTests(unittest.TestCase):
         self.assertEqual(create_calls, [])
         self.assertTrue(publish.enabled)
 
-    def test_revoked_session_blocks_publish_handler_at_click_time(self) -> None:
-        fake_ui = RecordingUi()
-        original_ui = create_help_point.ui
-        create_help_point.ui = fake_ui
-        authorized = [True]
-        create_calls = []
-        custom_category_calls = []
-        try:
-            with patch.object(
-                create_help_point,
-                "render_location_picker",
-                return_value=SimpleNamespace(latitude=None, longitude=None),
-                create=True,
-            ):
-                create_help_point.render_create_help_point(
-                    {},
-                    lambda command: create_calls.append(command) or self.fail("must not create"),
-                    lambda name: custom_category_calls.append(name) or self.fail("must not create category"),
-                    lambda: authorized[0],
-                    lambda: ("Antioquia", "Valle del Cauca"),
-                    self.list_localities,
-                    lambda: self.AFFECTED_DEPARTMENTS,
-                    lambda *_args: self.fail("geocoder must not run"),
-                    "https://dondeayudo.example",
-                )
-            authorized[0] = False
-
-            next(
-                element
-                for element in fake_ui.elements
-                if element.kind == "button"
-                and element.args == ("Publicar punto de ayuda",)
-            ).kwargs["on_click"]()
-        finally:
-            create_help_point.ui = original_ui
-
-        self.assertEqual(create_calls, [])
-        self.assertEqual(custom_category_calls, [])
-        self.assertEqual(fake_ui.navigate.paths, ["/acceso"])
-        notification = next(element for element in fake_ui.elements if element.kind == "notify")
-        self.assertNotIn("private", repr((notification.args, notification.kwargs)))
-
     def test_missing_map_selection_notifies_without_calling_handlers(self) -> None:
         fake_ui = RecordingUi()
         original_ui = create_help_point.ui
@@ -1447,7 +1393,6 @@ class CreateHelpPointResponsivePresentationTests(unittest.TestCase):
                     {},
                     lambda command: create_calls.append(command),
                     lambda name: custom_calls.append(name),
-                    lambda: True,
                     lambda: ("Antioquia", "Valle del Cauca"),
                     self.list_localities,
                     lambda: self.AFFECTED_DEPARTMENTS,
@@ -1484,7 +1429,6 @@ class CreateHelpPointResponsivePresentationTests(unittest.TestCase):
                     {"Agua": category_id},
                     lambda _command: self.fail("must not publish"),
                     lambda _name: self.fail("must not create category"),
-                    lambda: True,
                     lambda: ("Valle del Cauca",),
                     self.list_localities,
                     lambda: self.AFFECTED_DEPARTMENTS,

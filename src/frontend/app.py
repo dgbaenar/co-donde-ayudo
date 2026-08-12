@@ -17,7 +17,6 @@ from frontend.pages.create_help_point import (
 )
 from frontend.pages.coordinator_access import (
     AuthorizeCoordinatorAccess,
-    is_coordinator_authorized,
     render_coordinator_access,
 )
 from frontend.pages.home import ListDepartments, ListLocalities, render_home
@@ -99,15 +98,10 @@ def create_app(
 
     @ui.page("/crear")
     def create_page() -> None:
-        if not is_coordinator_authorized(app.storage.user):
-            ui.navigate.to("/acceso")
-            return
-
         render_create_help_point(
             list_active_categories(),
             create_help_point,
             create_custom_category,
-            lambda: is_coordinator_authorized(app.storage.user),
             list_departments,
             list_localities,
             list_affected_departments,

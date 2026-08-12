@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import replace
+from datetime import UTC, datetime
 import secrets
 from typing import Protocol
 from uuid import UUID, uuid4
@@ -87,6 +88,7 @@ class HelpPointService:
             admin_token=token,
             active=True,
             needs=needs,
+            updated_at=datetime.now(UTC),
             additional_affected_areas=(
                 command.additional_affected_areas.strip()
                 if command.additional_affected_areas
@@ -241,5 +243,6 @@ class HelpPointService:
             coordinator_contact=point.coordinator_contact,
             active=point.active,
             needs=tuple(replace(need, commitments=()) for need in point.needs),
+            updated_at=point.updated_at,
             additional_affected_areas=point.additional_affected_areas,
         )

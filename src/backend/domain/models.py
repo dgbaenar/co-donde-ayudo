@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from datetime import datetime
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from enum import Enum
 from uuid import UUID
 
@@ -104,6 +104,7 @@ class HelpPoint:
     admin_token: str
     active: bool
     needs: tuple[Need, ...]
+    updated_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     additional_affected_areas: str | None = None
 
 
@@ -123,6 +124,7 @@ class PublicHelpPoint:
     coordinator_contact: str
     active: bool
     needs: tuple[Need, ...]
+    updated_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     additional_affected_areas: str | None = None
 
 

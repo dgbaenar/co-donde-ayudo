@@ -190,7 +190,7 @@ def render_home(
                         "text-lg sm:text-2xl font-semibold leading-tight "
                         "text-emerald-950 whitespace-nowrap"
                     )
-                ui.link("Coordinar un punto", "/acceso").classes(
+                ui.link("Crear nuevo punto de ayuda o recolección", "/crear").classes(
                     "w-full sm:w-auto min-h-[48px] flex items-center justify-center "
                     "px-4 text-base rounded-lg font-medium bg-emerald-700 text-white "
                     "hover:bg-emerald-800 no-underline shadow-sm shrink-0"

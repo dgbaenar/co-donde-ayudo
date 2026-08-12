@@ -19,7 +19,6 @@ logger = logging.getLogger(__name__)
 
 CreateHelpPointHandler = Callable[[CreateHelpPoint], CreatedHelpPoint]
 CreateCustomCategoryHandler = Callable[[str], UUID]
-CoordinatorAuthorizationCheck = Callable[[], bool]
 ListDepartments = Callable[[], Sequence[str]]
 ListLocalities = Callable[[str], Sequence[str]]
 GeocodeAddress = Callable[[str, str, str], Awaitable[object | None]]
@@ -138,7 +137,6 @@ def render_create_help_point(
     categories: Mapping[str, UUID],
     create_help_point: CreateHelpPointHandler,
     create_custom_category: CreateCustomCategoryHandler,
-    is_coordinator_authorized: CoordinatorAuthorizationCheck,
     list_departments: ListDepartments,
     list_localities: ListLocalities,
     list_affected_departments: ListDepartments,
@@ -304,12 +302,6 @@ def render_create_help_point(
             def submit() -> None:
                 nonlocal submitting, published
                 if submitting or published:
-                    return
-                if not is_coordinator_authorized():
-                    ui.notify(
-                        "No fue posible autorizar la publicación.", type="negative"
-                    )
-                    ui.navigate.to("/acceso")
                     return
 
                 values = FormValues(

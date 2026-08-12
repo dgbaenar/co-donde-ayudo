@@ -259,14 +259,19 @@ class CoordinatorAccessRouteTests(unittest.TestCase):
         self.addCleanup(self.app_patch.stop)
         frontend_app.create_app(**self.dependencies)
 
-    def test_create_without_session_redirects_before_rendering_form(self) -> None:
+    def test_create_route_renders_form_without_requiring_coordinator_session(self) -> None:
         self.register_routes()
 
         with patch.object(frontend_app, "render_create_help_point") as render:
             self.fake_ui.pages["/crear"]()
 
-        render.assert_not_called()
-        self.assertEqual(self.fake_ui.navigate.paths, ["/acceso"])
+        render.assert_called_once()
+        self.assertEqual(self.fake_ui.navigate.paths, [])
+        self.assertIs(render.call_args.args[3], self.dependencies["list_departments"])
+        self.assertIs(render.call_args.args[4], self.dependencies["list_localities"])
+        self.assertIs(render.call_args.args[5], self.dependencies["list_affected_departments"])
+        self.assertIs(render.call_args.args[6], self.dependencies["geocode_address"])
+        self.assertEqual(render.call_args.args[7], self.dependencies["app_base_url"])
 
     def test_create_app_registers_one_global_bounded_menu_rule(self) -> None:
         self.register_routes()
@@ -295,38 +300,7 @@ class CoordinatorAccessRouteTests(unittest.TestCase):
 
         render.assert_called_once_with(self.dependencies["authorize_coordinator_access"])
 
-    def test_create_with_session_renders_form(self) -> None:
-        self.user_storage[coordinator_access.COORDINATOR_AUTHORIZED_KEY] = True
-        self.register_routes()
 
-        with patch.object(frontend_app, "render_create_help_point") as render:
-            self.fake_ui.pages["/crear"]()
-
-        render.assert_called_once()
-        self.assertEqual(self.fake_ui.navigate.paths, [])
-        current_authorization = render.call_args.args[3]
-        self.assertIs(
-            render.call_args.args[4],
-            self.dependencies["list_departments"],
-        )
-        self.assertIs(
-            render.call_args.args[5],
-            self.dependencies["list_localities"],
-        )
-        self.assertIs(
-            render.call_args.args[6],
-            self.dependencies["list_affected_departments"],
-        )
-        self.assertIs(
-            render.call_args.args[7],
-            self.dependencies["geocode_address"],
-        )
-        self.assertEqual(
-            render.call_args.args[8],
-            self.dependencies["app_base_url"],
-        )
-        self.user_storage.clear()
-        self.assertFalse(current_authorization())
 
     def test_public_and_private_admin_routes_do_not_require_coordinator_session(self) -> None:
         self.register_routes()
