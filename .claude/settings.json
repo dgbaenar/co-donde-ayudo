@@ -1,0 +1,76 @@
+{
+  "permissions": {
+    "deny": [
+      "Read(./.env)"
+    ]
+  },
+  "enableAllProjectMcpServers": true,
+  "enabledMcpjsonServers": [
+    "github"
+  ],
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "rtk hook claude",
+            "statusMessage": "Running rtk pre-Bash guard"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "FILE=\"$CLAUDE_TOOL_INPUT_FILE_PATH\"; if echo \"$FILE\" | grep -q '\\.py$'; then cd \"$CLAUDE_PROJECT_DIR\" && uvx ruff@0.15.22 format \"$FILE\" && uvx ruff@0.15.22 check --fix \"$FILE\"; fi",
+            "timeout": 15,
+            "statusMessage": "Auto-formatting & linting Python with ruff"
+          }
+        ]
+      },
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "FILE=\"$CLAUDE_TOOL_INPUT_FILE_PATH\"; if [[ \"$FILE\" == *.py ]]; then python3 \"${CLAUDE_PROJECT_DIR}/.claude/hooks/style-guard.py\"; fi",
+            "timeout": 20,
+            "statusMessage": "Checking project style rules on changed Python file"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PROJECT_DIR}/.claude/hooks/style-guard.py\"",
+            "timeout": 20,
+            "statusMessage": "Checking project style rules (style-guard)"
+          }
+        ]
+      }
+    ]
+  },
+  "enabledPlugins": {
+    "context7@claude-plugins-official": true,
+    "claude-md-management@claude-plugins-official": true,
+    "superpowers@claude-plugins-official": true,
+    "code-simplifier@claude-plugins-official": true,
+    "code-review@claude-plugins-official": true,
+    "skill-creator@claude-plugins-official": true,
+    "github@claude-plugins-official": true,
+    "claude-code-setup@claude-plugins-official": true,
+    "hookify@claude-plugins-official": true,
+    "remember@claude-plugins-official": true,
+    "greptile@claude-plugins-official": true,
+    "security-guidance@claude-plugins-official": true,
+    "terraform@claude-plugins-official": true
+  }
+}

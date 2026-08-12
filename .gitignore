@@ -8,9 +8,8 @@ __pycache__/
 .coverage
 htmlcov/
 
-.claude/
 .superpowers/
 .playwright-cli/
 .nicegui/
 output/
-CLAUDE.md
+.claude/settings.local.json
