@@ -2,39 +2,118 @@ from __future__ import annotations
 
 import unittest
 from unittest.mock import patch
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 from backend.domain.models import Need, NeedStatus, PublicHelpPoint
 from frontend.pages import help_point_detail
 
 
 class RecordingElement:
-    def __init__(self, kind, *args, **kwargs) -> None:
+    def __init__(self, ui, kind, *args, **kwargs):
+        self.ui = ui
         self.kind, self.args, self.kwargs = kind, args, kwargs
+        self.value = kwargs.get("value")
         self.classes_value = ""
         self.props_value = ""
+        self.children = []
 
-    def __enter__(self): return self
-    def __exit__(self, *_args): return False
-    def classes(self, value): self.classes_value = value; return self
-    def props(self, value): self.props_value = value; return self
+    def __enter__(self):
+        self.ui.context.append(self)
+        return self
+
+    def __exit__(self, *_args):
+        self.ui.context.pop()
+        return False
+
+    def classes(self, value):
+        self.classes_value = value
+        return self
+
+    def props(self, value):
+        self.props_value = value
+        return self
+
+    def clear(self):
+        removed = set(_descendants(self))
+        self.ui.elements[:] = [
+            element for element in self.ui.elements if element not in removed
+        ]
+        self.children.clear()
+
+
+class RecordingDialog(RecordingElement):
+    def __init__(self, ui, *args, **kwargs):
+        super().__init__(ui, "dialog", *args, **kwargs)
+        self.opened = False
+        self.open_calls = 0
+        self.close_calls = 0
+
+    def open(self):
+        self.opened = True
+        self.open_calls += 1
+
+    def close(self):
+        self.opened = False
+        self.close_calls += 1
 
 
 class RecordingUi:
     def __init__(self) -> None:
         self.elements = []
+        self.context = []
 
     def _record(self, kind, *args, **kwargs):
-        element = RecordingElement(kind, *args, **kwargs)
+        element = RecordingElement(self, kind, *args, **kwargs)
         self.elements.append(element)
+        if self.context:
+            self.context[-1].children.append(element)
         return element
 
-    def column(self, *args, **kwargs): return self._record("column", *args, **kwargs)
-    def grid(self, *args, **kwargs): return self._record("grid", *args, **kwargs)
-    def row(self, *args, **kwargs): return self._record("row", *args, **kwargs)
-    def link(self, *args, **kwargs): return self._record("link", *args, **kwargs)
-    def label(self, *args, **kwargs): return self._record("label", *args, **kwargs)
-    def html(self, *args, **kwargs): return self._record("html", *args, **kwargs)
+    def column(self, *args, **kwargs):
+        return self._record("column", *args, **kwargs)
+
+    def grid(self, *args, **kwargs):
+        return self._record("grid", *args, **kwargs)
+
+    def row(self, *args, **kwargs):
+        return self._record("row", *args, **kwargs)
+
+    def link(self, *args, **kwargs):
+        return self._record("link", *args, **kwargs)
+
+    def label(self, *args, **kwargs):
+        return self._record("label", *args, **kwargs)
+
+    def html(self, *args, **kwargs):
+        return self._record("html", *args, **kwargs)
+
+    def card(self, *args, **kwargs):
+        return self._record("card", *args, **kwargs)
+
+    def input(self, *args, **kwargs):
+        return self._record("input", *args, **kwargs)
+
+    def textarea(self, *args, **kwargs):
+        return self._record("textarea", *args, **kwargs)
+
+    def button(self, *args, **kwargs):
+        return self._record("button", *args, **kwargs)
+
+    def notify(self, *args, **kwargs):
+        return self._record("notify", *args, **kwargs)
+
+    def dialog(self, *args, **kwargs):
+        element = RecordingDialog(self, *args, **kwargs)
+        self.elements.append(element)
+        if self.context:
+            self.context[-1].children.append(element)
+        return element
+
+
+def _descendants(element):
+    for child in element.children:
+        yield child
+        yield from _descendants(child)
 
 
 class HelpPointDetailTests(unittest.TestCase):
@@ -81,6 +160,7 @@ class HelpPointDetailTests(unittest.TestCase):
         self.ui_patch = patch.object(help_point_detail, "ui", self.fake_ui)
         self.ui_patch.start()
         self.addCleanup(self.ui_patch.stop)
+        self.no_op_create_commitment = lambda *_args: object()
 
     def test_valid_uuid_renders_semantic_sections_status_rows_and_point_map(self) -> None:
         requested_ids = []
@@ -90,6 +170,7 @@ class HelpPointDetailTests(unittest.TestCase):
                 str(self.point.id),
                 lambda point_id: requested_ids.append(point_id) or self.point,
                 self.categories,
+                self.no_op_create_commitment,
             )
 
         self.assertEqual(requested_ids, [self.point.id])
@@ -215,6 +296,7 @@ class HelpPointDetailTests(unittest.TestCase):
                 str(point_with_extra_areas.id),
                 lambda _point_id: point_with_extra_areas,
                 self.categories,
+                self.no_op_create_commitment,
             )
 
         labels = [
@@ -230,6 +312,7 @@ class HelpPointDetailTests(unittest.TestCase):
                 str(self.point.id),
                 lambda _point_id: self.point,
                 self.categories,
+                self.no_op_create_commitment,
             )
 
         labels = [
@@ -262,6 +345,7 @@ class HelpPointDetailTests(unittest.TestCase):
                 str(department_wide_point.id),
                 lambda _point_id: department_wide_point,
                 self.categories,
+                self.no_op_create_commitment,
             )
 
         labels = [
@@ -280,7 +364,9 @@ class HelpPointDetailTests(unittest.TestCase):
             with self.subTest(path_value=path_value):
                 self.fake_ui.elements.clear()
                 with patch.object(help_point_detail, "render_help_point_map") as render_map:
-                    help_point_detail.render_help_point_detail_for_path(path_value, getter, {})
+                    help_point_detail.render_help_point_detail_for_path(
+                        path_value, getter, {}, self.no_op_create_commitment
+                    )
 
                 labels = [
                     element.args[0]
@@ -289,6 +375,238 @@ class HelpPointDetailTests(unittest.TestCase):
                 ]
                 self.assertEqual(labels, ["No fue posible encontrar este punto de ayuda."])
                 render_map.assert_not_called()
+
+
+class VoyAAyudarDialogTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.category_id = uuid4()
+        self.covered_category_id = uuid4()
+        self.needs_help_id = uuid4()
+        self.help_on_the_way_id = uuid4()
+        self.covered_id = uuid4()
+        self.point = PublicHelpPoint(
+            id=uuid4(),
+            name="Parque Central",
+            description="Familias evacuadas reciben apoyo.",
+            city="Cali",
+            department="Valle del Cauca",
+            address="Calle 5 # 10-20",
+            affected_city="Roldanillo",
+            affected_department="Valle del Cauca",
+            latitude=3.4516,
+            longitude=-76.532,
+            active=True,
+            needs=(
+                Need(
+                    id=self.needs_help_id,
+                    category_id=self.category_id,
+                    status=NeedStatus.NEEDS_HELP,
+                ),
+                Need(
+                    id=self.help_on_the_way_id,
+                    category_id=self.category_id,
+                    status=NeedStatus.HELP_ON_THE_WAY,
+                ),
+                Need(
+                    id=self.covered_id,
+                    category_id=self.covered_category_id,
+                    status=NeedStatus.COVERED,
+                ),
+            ),
+        )
+        self.categories = {"Agua": self.category_id, "Refugio": self.covered_category_id}
+        self.fake_ui = RecordingUi()
+        self.ui_patch = patch.object(help_point_detail, "ui", self.fake_ui)
+        self.ui_patch.start()
+        self.addCleanup(self.ui_patch.stop)
+        self.map_patch = patch.object(help_point_detail, "render_help_point_map")
+        self.map_patch.start()
+        self.addCleanup(self.map_patch.stop)
+
+    def _render(self, create_commitment) -> None:
+        help_point_detail.render_help_point_detail(
+            self.point, self.categories, create_commitment
+        )
+
+    def _trigger_buttons(self):
+        return [
+            element
+            for element in self.fake_ui.elements
+            if element.kind == "button" and element.args == ("Voy a ayudar",)
+        ]
+
+    def test_button_appears_only_on_needs_that_are_not_covered(self) -> None:
+        self._render(lambda *_args: object())
+
+        self.assertEqual(len(self._trigger_buttons()), 2)
+
+    def test_button_opens_dialog_with_required_name_and_optional_note_fields(self) -> None:
+        self._render(lambda *_args: object())
+
+        dialog = next(element for element in self.fake_ui.elements if element.kind == "dialog")
+        trigger = self._trigger_buttons()[0]
+        self.assertEqual(trigger.kwargs["on_click"], dialog.open)
+
+        name_input = next(
+            element
+            for element in self.fake_ui.elements
+            if element.kind == "input" and element.args == ("Nombre",)
+        )
+        note_input = next(
+            element
+            for element in self.fake_ui.elements
+            if element.kind == "textarea" and element.args == ("Nota (opcional)",)
+        )
+        self.assertEqual(note_input.kwargs.get("placeholder"), "Ej: Voy para allá.")
+        self.assertIsNotNone(name_input)
+
+    def test_confirm_calls_handler_with_need_id_name_and_none_note_when_note_blank(
+        self,
+    ) -> None:
+        calls = []
+
+        def create_commitment(need_id, name, note):
+            calls.append((need_id, name, note))
+            return object()
+
+        self._render(create_commitment)
+
+        name_input = next(
+            element
+            for element in self.fake_ui.elements
+            if element.kind == "input" and element.args == ("Nombre",)
+        )
+        name_input.value = "Ana"
+        confirm_button = next(
+            element
+            for element in self.fake_ui.elements
+            if element.kind == "button" and element.args == ("Confirmar",)
+        )
+        confirm_button.kwargs["on_click"]()
+
+        self.assertEqual(calls, [(self.needs_help_id, "Ana", None)])
+
+    def test_confirm_calls_handler_with_stripped_name_and_note_when_both_provided(
+        self,
+    ) -> None:
+        calls = []
+
+        def create_commitment(need_id, name, note):
+            calls.append((need_id, name, note))
+            return object()
+
+        self._render(create_commitment)
+
+        name_input = next(
+            element
+            for element in self.fake_ui.elements
+            if element.kind == "input" and element.args == ("Nombre",)
+        )
+        note_input = next(
+            element
+            for element in self.fake_ui.elements
+            if element.kind == "textarea" and element.args == ("Nota (opcional)",)
+        )
+        name_input.value = "  Ana  "
+        note_input.value = "Voy para allá."
+        confirm_button = next(
+            element
+            for element in self.fake_ui.elements
+            if element.kind == "button" and element.args == ("Confirmar",)
+        )
+        confirm_button.kwargs["on_click"]()
+
+        self.assertEqual(calls, [(self.needs_help_id, "Ana", "Voy para allá.")])
+
+    def test_confirm_without_a_name_shows_negative_notice_and_never_calls_handler(
+        self,
+    ) -> None:
+        calls = []
+
+        def create_commitment(*args):
+            calls.append(args)
+            return object()
+
+        self._render(create_commitment)
+
+        confirm_button = next(
+            element
+            for element in self.fake_ui.elements
+            if element.kind == "button" and element.args == ("Confirmar",)
+        )
+        confirm_button.kwargs["on_click"]()
+
+        self.assertEqual(calls, [])
+        notifications = [
+            element
+            for element in self.fake_ui.elements
+            if element.kind == "notify"
+        ]
+        self.assertEqual(len(notifications), 1)
+        self.assertEqual(notifications[0].kwargs.get("type"), "negative")
+
+    def test_confirm_success_shows_exact_thanks_message(self) -> None:
+        self._render(lambda *_args: object())
+
+        name_input = next(
+            element
+            for element in self.fake_ui.elements
+            if element.kind == "input" and element.args == ("Nombre",)
+        )
+        name_input.value = "Ana"
+        confirm_button = next(
+            element
+            for element in self.fake_ui.elements
+            if element.kind == "button" and element.args == ("Confirmar",)
+        )
+        confirm_button.kwargs["on_click"]()
+
+        labels = [
+            element.args[0]
+            for element in self.fake_ui.elements
+            if element.kind == "label"
+        ]
+        self.assertIn(
+            "Gracias. Las personas que coordinan este punto podrán ver "
+            "que hay ayuda en camino.",
+            labels,
+        )
+
+    def test_confirm_failure_shows_generic_negative_notice_without_exposing_error(
+        self,
+    ) -> None:
+        def create_commitment(*_args):
+            raise ValueError("need is covered")
+
+        self._render(create_commitment)
+
+        name_input = next(
+            element
+            for element in self.fake_ui.elements
+            if element.kind == "input" and element.args == ("Nombre",)
+        )
+        name_input.value = "Ana"
+        confirm_button = next(
+            element
+            for element in self.fake_ui.elements
+            if element.kind == "button" and element.args == ("Confirmar",)
+        )
+        confirm_button.kwargs["on_click"]()
+
+        notifications = [
+            element
+            for element in self.fake_ui.elements
+            if element.kind == "notify"
+        ]
+        self.assertEqual(len(notifications), 1)
+        self.assertEqual(notifications[0].kwargs.get("type"), "negative")
+        self.assertNotIn("covered", str(notifications[0].args).lower())
+        labels = [
+            element.args[0]
+            for element in self.fake_ui.elements
+            if element.kind == "label"
+        ]
+        self.assertFalse(any(label.startswith("Gracias.") for label in labels))
 
 
 if __name__ == "__main__":

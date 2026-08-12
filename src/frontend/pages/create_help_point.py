@@ -182,7 +182,13 @@ def render_create_help_point(
         with form_container:
             ui.label("Crear punto de ayuda").classes("text-h5")
             name = ui.input("Nombre del lugar").classes("w-full")
-            description = ui.textarea("¿Qué está pasando?").classes("w-full")
+            description = ui.textarea(
+                "¿Qué está pasando en este punto?",
+                placeholder=(
+                    "Ej: Varias familias fueron evacuadas y estamos "
+                    "organizando ayuda desde este parque."
+                ),
+            ).classes("w-full")
             ui.label("Zona que recibirá la ayuda").classes("text-h6")
             affected_department = ui.select(
                 options={

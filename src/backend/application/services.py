@@ -8,6 +8,7 @@ from uuid import UUID, uuid4
 
 from backend.domain.emergency_scope import AFFECTED_DEPARTMENTS
 from backend.domain.models import (
+    Commitment,
     CreateHelpPoint,
     CreatedHelpPoint,
     HelpPoint,
@@ -30,7 +31,11 @@ class HelpPointRepository(Protocol):
 
     def get_help_point_by_admin_token(self, admin_token: str) -> HelpPoint | None: ...
 
+    def get_help_point_by_need_id(self, need_id: UUID) -> HelpPoint | None: ...
+
     def create_custom_category(self, name: str) -> UUID: ...
+
+    def create_commitment(self, need_id: UUID, name: str, note: str | None) -> Commitment: ...
 
 
 class LocationCatalog(Protocol):
@@ -152,6 +157,22 @@ class HelpPointService:
         validate_required(normalized_name, "name", 120)
         return self._repository.create_custom_category(normalized_name)
 
+    def create_commitment(self, need_id: UUID, name: str, note: str | None) -> Commitment:
+        point = self._repository.get_help_point_by_need_id(need_id)
+        if point is None or not point.active:
+            raise ValueError("need not found")
+        need = next((n for n in point.needs if n.id == need_id), None)
+        if need is None:
+            raise ValueError("need not found")
+        if need.status is NeedStatus.COVERED:
+            raise ValueError("need is already covered")
+        normalized_name = name.strip()
+        validate_required(normalized_name, "name", 120)
+        normalized_note = (note or "").strip() or None
+        if normalized_note is not None:
+            validate_optional(normalized_note, "note", 500)
+        return self._repository.create_commitment(need_id, normalized_name, normalized_note)
+
     def update_help_point_info(
         self,
         point: HelpPoint,
@@ -202,6 +223,6 @@ class HelpPointService:
             latitude=point.latitude,
             longitude=point.longitude,
             active=point.active,
-            needs=point.needs,
+            needs=tuple(replace(need, commitments=()) for need in point.needs),
             additional_affected_areas=point.additional_affected_areas,
         )

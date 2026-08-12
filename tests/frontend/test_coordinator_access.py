@@ -224,6 +224,7 @@ class CoordinatorAccessRouteTests(unittest.TestCase):
             "authorize_coordinator_access": lambda _key: False,
             "get_public_help_point": lambda _point_id: None,
             "is_database_ready": lambda: True,
+            "create_commitment": lambda *_args: object(),
         }
 
     def register_routes(self) -> None:

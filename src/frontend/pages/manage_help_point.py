@@ -130,7 +130,12 @@ def render_manage_help_point(
                         "text-lg font-semibold text-slate-900"
                     ).props("role=heading aria-level=2")
                     description = ui.textarea(
-                        "¿Qué está pasando?", value=point.description
+                        "¿Qué está pasando en este punto?",
+                        value=point.description,
+                        placeholder=(
+                            "Ej: Varias familias fueron evacuadas y estamos "
+                            "organizando ayuda desde este parque."
+                        ),
                     ).classes("w-full")
                     coordinator_contact = ui.input(
                         "Contacto", value=point.coordinator_contact
@@ -177,6 +182,15 @@ def render_manage_help_point(
                             ui.label(options[need.status]).classes(
                                 "text-sm text-slate-600"
                             )
+                            if need.commitments:
+                                with ui.column().classes("w-full gap-0.5"):
+                                    for commitment in need.commitments:
+                                        text = f"• {commitment.name}"
+                                        if commitment.note:
+                                            text += f" — {commitment.note}"
+                                        ui.label(text).classes(
+                                            "text-xs text-slate-500"
+                                        )
                             selected_status = ui.select(
                                 options=options,
                                 label="Estado",

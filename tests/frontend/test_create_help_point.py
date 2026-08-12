@@ -366,6 +366,7 @@ class FrontendBoundaryTests(unittest.TestCase):
                 "authorize_coordinator_access",
                 "get_public_help_point",
                 "is_database_ready",
+                "create_commitment",
             ),
         )
         self.assertIn('@ui.page("/", title="¿Dónde ayudo?")', source)
@@ -408,7 +409,7 @@ class CreateHelpPointResponsivePresentationTests(unittest.TestCase):
                 if element.args[0] in field_values:
                     element.value = field_values[element.args[0]]
             elif element.kind == "textarea" and element.args:
-                if element.args[0] == "¿Qué está pasando?":
+                if element.args[0] == "¿Qué está pasando en este punto?":
                     element.value = "Familias evacuadas reciben apoyo."
 
         select_values = {

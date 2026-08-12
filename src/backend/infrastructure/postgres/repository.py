@@ -1,11 +1,17 @@
 from __future__ import annotations
 
-from uuid import UUID
+from datetime import UTC, datetime
+from uuid import UUID, uuid4
 
 from sqlalchemy import select
 
-from backend.domain.models import HelpPoint, Need, NeedStatus
-from backend.infrastructure.postgres.orm_models import HelpPointRow, NeedCategoryRow, NeedRow
+from backend.domain.models import Commitment, HelpPoint, Need, NeedStatus
+from backend.infrastructure.postgres.orm_models import (
+    CommitmentRow,
+    HelpPointRow,
+    NeedCategoryRow,
+    NeedRow,
+)
 
 
 class PostgresHelpPointRepository:
@@ -51,6 +57,32 @@ class PostgresHelpPointRepository:
         with self._session_factory() as session:
             row = session.scalars(select(HelpPointRow).where(HelpPointRow.admin_token == admin_token)).first()
             return None if row is None else self._point_from_row(row)
+
+    def get_help_point_by_need_id(self, need_id: UUID) -> HelpPoint | None:
+        with self._session_factory() as session:
+            need_row = session.get(NeedRow, need_id)
+            return None if need_row is None else self._point_from_row(need_row.help_point)
+
+    def create_commitment(self, need_id: UUID, name: str, note: str | None) -> Commitment:
+        with self._session_factory() as session:
+            with session.begin():
+                row = CommitmentRow(
+                    id=uuid4(),
+                    need_id=need_id,
+                    nombre=name,
+                    nota=note,
+                    activo=True,
+                    created_at=datetime.now(UTC),
+                )
+                session.add(row)
+            return Commitment(
+                id=row.id,
+                need_id=row.need_id,
+                name=row.nombre,
+                note=row.nota,
+                active=row.activo,
+                created_at=row.created_at,
+            )
 
     def create_custom_category(self, name: str) -> UUID:
         with self._session_factory() as session:
@@ -102,5 +134,23 @@ class PostgresHelpPointRepository:
             coordinator_contact=row.contacto_coordinador,
             admin_token=row.admin_token,
             active=row.activo,
-            needs=tuple(Need(id=need.id, category_id=need.category_id, status=NeedStatus(need.estado)) for need in row.needs),
+            needs=tuple(
+                Need(
+                    id=need.id,
+                    category_id=need.category_id,
+                    status=NeedStatus(need.estado),
+                    commitments=tuple(
+                        Commitment(
+                            id=commitment.id,
+                            need_id=commitment.need_id,
+                            name=commitment.nombre,
+                            note=commitment.nota,
+                            active=commitment.activo,
+                            created_at=commitment.created_at,
+                        )
+                        for commitment in need.commitments
+                    ),
+                )
+                for need in row.needs
+            ),
         )

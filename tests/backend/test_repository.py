@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import unittest
 from dataclasses import replace
-from uuid import UUID
+from datetime import UTC, datetime
+from uuid import UUID, uuid4
 
-from backend.domain.models import HelpPoint, Need, NeedStatus
-from backend.infrastructure.postgres.orm_models import HelpPointRow, NeedRow
+from backend.domain.models import Commitment, HelpPoint, Need, NeedStatus
+from backend.infrastructure.postgres.orm_models import CommitmentRow, HelpPointRow, NeedRow
 from backend.infrastructure.postgres.repository import PostgresHelpPointRepository
 
 
@@ -14,6 +15,7 @@ class Session:
         self.added: list[object] = []
         self.deleted: list[object] = []
         self.rows: dict[UUID, HelpPointRow] = {}
+        self.need_rows: dict[UUID, NeedRow] = {}
 
     def __enter__(self):
         return self
@@ -34,6 +36,8 @@ class Session:
         return None
 
     def get(self, model, key):
+        if model is NeedRow:
+            return self.need_rows.get(key)
         return self.rows.get(key)
 
 
@@ -124,6 +128,92 @@ class RepositoryTests(unittest.TestCase):
         self.assertIs(existing.needs[0], existing_need)
         self.assertEqual(existing_need.estado, NeedStatus.COVERED.value)
         self.assertEqual(session.deleted, [])
+
+    def test_point_from_row_maps_commitments_onto_their_need(self) -> None:
+        original = point()
+        row = PostgresHelpPointRepository._row_from_point(original)
+        commitment_row = CommitmentRow(
+            id=uuid4(),
+            need_id=row.needs[0].id,
+            nombre="Ana",
+            nota="Voy para allá.",
+            activo=True,
+            created_at=datetime(2026, 8, 11, tzinfo=UTC),
+        )
+        row.needs[0].commitments = [commitment_row]
+
+        restored = PostgresHelpPointRepository._point_from_row(row)
+
+        self.assertEqual(len(restored.needs[0].commitments), 1)
+        commitment = restored.needs[0].commitments[0]
+        self.assertEqual(commitment.id, commitment_row.id)
+        self.assertEqual(commitment.need_id, row.needs[0].id)
+        self.assertEqual(commitment.name, "Ana")
+        self.assertEqual(commitment.note, "Voy para allá.")
+        self.assertTrue(commitment.active)
+        self.assertEqual(commitment.created_at, commitment_row.created_at)
+
+    def test_point_from_row_defaults_to_no_commitments(self) -> None:
+        row = PostgresHelpPointRepository._row_from_point(point())
+
+        restored = PostgresHelpPointRepository._point_from_row(row)
+
+        self.assertEqual(restored.needs[0].commitments, ())
+
+    def test_get_help_point_by_need_id_returns_full_point_when_need_exists(self) -> None:
+        original = point()
+        row = PostgresHelpPointRepository._row_from_point(original)
+        session = Session()
+        session.need_rows[row.needs[0].id] = row.needs[0]
+        row.needs[0].help_point = row
+
+        result = PostgresHelpPointRepository(Factory(session)).get_help_point_by_need_id(
+            row.needs[0].id
+        )
+
+        self.assertEqual(result, original)
+
+    def test_get_help_point_by_need_id_returns_none_when_need_is_missing(self) -> None:
+        session = Session()
+
+        result = PostgresHelpPointRepository(Factory(session)).get_help_point_by_need_id(uuid4())
+
+        self.assertIsNone(result)
+
+    def test_create_commitment_inserts_row_and_returns_domain_commitment(self) -> None:
+        session = Session()
+        need_id = uuid4()
+
+        result = PostgresHelpPointRepository(Factory(session)).create_commitment(
+            need_id, "Ana", "Voy para allá."
+        )
+
+        self.assertEqual(len(session.added), 1)
+        row = session.added[0]
+        self.assertIsInstance(row, CommitmentRow)
+        self.assertEqual(row.need_id, need_id)
+        self.assertEqual(row.nombre, "Ana")
+        self.assertEqual(row.nota, "Voy para allá.")
+        self.assertTrue(row.activo)
+        self.assertEqual(result, Commitment(
+            id=row.id,
+            need_id=need_id,
+            name="Ana",
+            note="Voy para allá.",
+            active=True,
+            created_at=row.created_at,
+        ))
+
+    def test_create_commitment_accepts_missing_note(self) -> None:
+        session = Session()
+        need_id = uuid4()
+
+        result = PostgresHelpPointRepository(Factory(session)).create_commitment(
+            need_id, "Ana", None
+        )
+
+        self.assertIsNone(result.note)
+        self.assertIsNone(session.added[0].nota)
 
 
 if __name__ == "__main__":

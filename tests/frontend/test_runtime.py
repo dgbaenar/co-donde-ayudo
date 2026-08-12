@@ -106,6 +106,7 @@ class RuntimeTests(unittest.TestCase):
             authorize_coordinator_access=access_service.authorize,
             get_public_help_point=service.get_public_help_point,
             is_database_ready=database_ready,
+            create_commitment=service.create_commitment,
         )
 
     def test_build_runtime_uses_http_cookie_policy_from_settings_without_recomputing_it(self) -> None:
