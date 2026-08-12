@@ -145,7 +145,9 @@ class CoordinatorAccessPageTests(unittest.TestCase):
         )
         contact = (
             "¿No tienes una clave o necesitas ayuda? "
-            "Contacto por WhatsApp: dan.barod"
+            "Contacto por WhatsApp: dan.barod. "
+            "También puedes preguntarles la contraseña a los influenciadores "
+            "que publicaron esta página."
         )
         self.assertIn(contact, labels)
         self.assertFalse(

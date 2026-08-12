@@ -33,7 +33,9 @@ def render_coordinator_access(authorize: AuthorizeCoordinatorAccess) -> None:
             access_key = ui.input("Clave de acceso", password=True).classes("w-full")
             ui.label(
                 "¿No tienes una clave o necesitas ayuda? "
-                "Contacto por WhatsApp: dan.barod"
+                "Contacto por WhatsApp: dan.barod. "
+                "También puedes preguntarles la contraseña a los influenciadores "
+                "que publicaron esta página."
             ).classes("text-sm leading-relaxed text-slate-600")
 
             def submit() -> None:
