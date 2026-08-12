@@ -156,9 +156,9 @@ def render_manage_help_point(
                                 update_help_point_info,
                             )
                         ),
-                    ).classes("w-full min-h-[44px]").props(
-                        "unelevated color=green-9"
-                    )
+                    ).classes(
+                        "w-full min-h-[44px]"
+                    ).props("unelevated color=primary")
 
                 with ui.card().classes(
                     "w-full gap-3 rounded-2xl border border-slate-200 bg-white p-4"
@@ -166,6 +166,17 @@ def render_manage_help_point(
                     ui.label("Necesidades").classes(
                         "text-lg font-semibold text-slate-900"
                     ).props("role=heading aria-level=2")
+                    with ui.row().classes(
+                        "w-full items-start gap-2 rounded-lg border "
+                        "border-slate-200 bg-slate-50 p-2"
+                    ):
+                        ui.label("ℹ️").classes("text-xs leading-relaxed")
+                        ui.label(
+                            "Quien confirma ayuda solo activa el estado "
+                            "amarillo. Solo quien tenga este enlace de "
+                            "administración puede marcar una necesidad como "
+                            "cubierto."
+                        ).classes("text-xs leading-relaxed text-slate-600")
                     for need in point.needs:
                         with ui.card().classes(
                             "w-full gap-2 rounded-xl border border-slate-200 p-3"
@@ -214,7 +225,7 @@ def render_manage_help_point(
                                     ),
                                 ).classes(
                                     "w-full sm:flex-1 min-h-[44px]"
-                                ).props("unelevated color=green-9")
+                                ).props("unelevated color=primary")
 
                                 with ui.dialog() as remove_dialog, ui.card().classes(
                                     "w-full max-w-sm gap-3 p-4"
@@ -280,9 +291,9 @@ def render_manage_help_point(
                                 add_need,
                             )
                         ),
-                    ).classes("w-full min-h-[44px]").props(
-                        "outline color=green-9"
-                    )
+                    ).classes(
+                        "w-full min-h-[44px]"
+                    ).props("outline color=primary")
 
                 with ui.card().classes(
                     "w-full gap-3 rounded-2xl border border-red-200 bg-white p-4"

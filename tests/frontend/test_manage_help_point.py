@@ -426,6 +426,12 @@ class ManageHelpPointResponsivePresentationTests(unittest.TestCase):
             self.assertIn(section, labels)
         self.assertIn("Agua", labels)
         self.assertIn("Se necesita", labels)
+        self.assertIn(
+            "Quien confirma ayuda solo activa el estado amarillo. "
+            "Solo quien tenga este enlace de administración puede "
+            "marcar una necesidad como cubierto.",
+            labels,
+        )
         buttons = {
             element.args[0]: element
             for element in fake_ui.elements
@@ -441,9 +447,11 @@ class ManageHelpPointResponsivePresentationTests(unittest.TestCase):
             self.assertIn("min-h-[44px]", buttons[text].classes_value)
         for text in ("Guardar información", "Guardar estado"):
             self.assertIn("unelevated", buttons[text].props_value)
-            self.assertIn("color=green-9", buttons[text].props_value)
+            self.assertIn("color=primary", buttons[text].props_value)
+            self.assertNotIn("color=green-9", buttons[text].props_value)
         self.assertIn("outline", buttons["Agregar necesidad"].props_value)
-        self.assertIn("color=green-9", buttons["Agregar necesidad"].props_value)
+        self.assertIn("color=primary", buttons["Agregar necesidad"].props_value)
+        self.assertNotIn("color=green-9", buttons["Agregar necesidad"].props_value)
         self.assertIn("outline", buttons["Quitar"].props_value)
         self.assertIn("color=red-9", buttons["Quitar"].props_value)
 

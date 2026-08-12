@@ -84,9 +84,7 @@ def render_commitment_control(
             ui.label(_THANKS_MESSAGE).classes("text-slate-700")
             ui.button(
                 "Cerrar", on_click=commit_dialog.close
-            ).classes("w-full min-h-[44px]").props(
-                "unelevated color=green-9"
-            )
+            ).classes("w-full min-h-[44px]").props("unelevated color=primary")
         on_committed(updated_need)
 
     def build_dialog() -> tuple[ui.dialog, ui.card, ui.input, ui.textarea]:
@@ -109,7 +107,7 @@ def render_commitment_control(
                 )
                 ui.button("Confirmar", on_click=lambda: confirm(commit_card, commit_dialog, name_input, note_input)).classes(
                     "w-full sm:flex-1 min-h-[44px]"
-                ).props("unelevated color=green-9")
+                ).props("unelevated color=primary")
 
         return commit_dialog, commit_card, name_input, note_input
 
@@ -117,7 +115,7 @@ def render_commitment_control(
 
     ui.button("Voy a ayudar", on_click=commit_dialog.open).classes(
         "shrink-0 min-h-[44px] px-3"
-    ).props("outline color=green-9")
+    ).props("outline color=primary")
 
 
 def render_help_point_detail(
@@ -191,6 +189,26 @@ def render_help_point_detail(
                     ui.label("🟢 Cubierto — no enviar más").classes(
                         "text-xs text-slate-500"
                     )
+                with ui.row().classes(
+                    "w-full items-start gap-2 rounded-lg border "
+                    "border-slate-200 bg-slate-50 p-2"
+                ):
+                    ui.label("ℹ️").classes("text-xs leading-relaxed")
+                    ui.label(
+                        "El amarillo se activa automáticamente al confirmar "
+                        "ayuda. Solo quien coordina este punto puede marcarlo "
+                        "como cubierto (verde)."
+                    ).classes("text-xs leading-relaxed text-slate-600")
+                with ui.row().classes(
+                    "w-full items-start gap-2 rounded-lg border "
+                    "border-slate-200 bg-slate-50 p-2"
+                ):
+                    ui.label("🙏").classes("text-xs leading-relaxed")
+                    ui.label(
+                        "Marca \"Voy a ayudar\" solo si de verdad vas a "
+                        "cumplir con esa necesidad. Si no vas a poder, "
+                        "por favor no la marques."
+                    ).classes("text-xs leading-relaxed text-slate-600")
                 for need in point.needs:
                     with ui.row().classes("w-full flex-wrap items-center gap-3"):
                         status_slot = ui.row().classes("flex-1 min-w-0")

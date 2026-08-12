@@ -232,6 +232,17 @@ class HelpPointDetailTests(unittest.TestCase):
         self.assertIn("🔴 Agua", labels)
         self.assertIn("🟡 Alimentos", labels)
         self.assertIn("🟢 Refugio — no enviar más", labels)
+        self.assertIn(
+            "Marca \"Voy a ayudar\" solo si de verdad vas a cumplir con esa "
+            "necesidad. Si no vas a poder, por favor no la marques.",
+            labels,
+        )
+        self.assertIn(
+            "El amarillo se activa automáticamente al confirmar ayuda. "
+            "Solo quien coordina este punto puede marcarlo como cubierto "
+            "(verde).",
+            labels,
+        )
         self.assertFalse(
             any(element.kind == "html" for element in self.fake_ui.elements)
         )
