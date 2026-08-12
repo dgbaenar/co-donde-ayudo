@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
+import logging
 from uuid import UUID
 
 from nicegui import ui
 
 from backend.domain.models import HelpPoint, NeedStatus
+
+logger = logging.getLogger(__name__)
 
 
 AddNeedHandler = Callable[[HelpPoint, str, UUID], HelpPoint]
@@ -106,6 +109,7 @@ def render_manage_help_point(
             try:
                 point = operation()
             except Exception:
+                logger.exception("failed to update help point %s", point.id)
                 ui.notify(
                     "No fue posible actualizar el punto. Inténtalo de nuevo.",
                     type="negative",

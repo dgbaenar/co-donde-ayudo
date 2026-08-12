@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
 import json
+import logging
 from urllib.parse import urlsplit
 from uuid import UUID
 
@@ -12,6 +13,8 @@ from nicegui import ui
 
 from backend.domain.models import CreateHelpPoint, CreatedHelpPoint
 from frontend.components.location_picker import render_location_picker
+
+logger = logging.getLogger(__name__)
 
 
 CreateHelpPointHandler = Callable[[CreateHelpPoint], CreatedHelpPoint]
@@ -280,6 +283,7 @@ def render_create_help_point(
                     ui.notify(str(error), type="negative")
                     return
                 except _PublicationHandlerError:
+                    logger.exception("failed to publish help point")
                     ui.notify(_PUBLICATION_FAILURE_MESSAGE, type="negative")
                     return
                 else:
