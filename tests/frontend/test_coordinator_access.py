@@ -318,6 +318,24 @@ class CoordinatorAccessRouteTests(unittest.TestCase):
         render_manage.assert_called_once()
         self.assertEqual(self.fake_ui.navigate.paths, [])
 
+    def test_manage_route_with_invalid_token_shows_friendly_message_not_500(self) -> None:
+        def raise_invalid_token(_token: str) -> object:
+            raise PermissionError("invalid admin token")
+
+        self.dependencies["get_managed_help_point"] = raise_invalid_token
+        self.register_routes()
+
+        with patch.object(frontend_app, "render_manage_help_point") as render_manage:
+            self.fake_ui.pages["/administrar/{admin_token}"]("does-not-exist")
+
+        render_manage.assert_not_called()
+        labels = [
+            element.args[0]
+            for element in self.fake_ui.elements
+            if element.kind == "label"
+        ]
+        self.assertIn("Este enlace de administración no es válido.", labels)
+
     def test_health_routes_return_fixed_generic_responses(self) -> None:
         self.register_routes()
 

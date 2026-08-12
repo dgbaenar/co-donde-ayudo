@@ -113,8 +113,13 @@ def create_app(
 
     @ui.page("/administrar/{admin_token}")
     def manage_page(admin_token: str) -> None:
+        try:
+            point = get_managed_help_point(admin_token)
+        except PermissionError:
+            ui.label("Este enlace de administración no es válido.")
+            return
         render_manage_help_point(
-            get_managed_help_point(admin_token),
+            point,
             admin_token,
             list_active_categories(),
             add_need,
