@@ -38,7 +38,7 @@ def commitment_count_text(count: int) -> str | None:
     return f"{count} personas confirmaron ayuda"
 
 
-def _render_updated_at(updated_at: datetime) -> None:
+def render_updated_at(updated_at: datetime) -> None:
     """Show a relative or absolute last-updated timestamp."""
     now = datetime.now(UTC)
     delta = now - updated_at
@@ -153,9 +153,6 @@ def render_help_point_detail(
         return
 
     category_names = {category_id: name for name, category_id in categories.items()}
-    reception_location = ", ".join(
-        value for value in (point.address, point.city, point.department) if value
-    )
     with ui.column().classes("w-full min-h-screen bg-slate-50"):
         with ui.column().classes("w-full max-w-4xl mx-auto gap-4 p-4 md:p-6"):
             ui.link("Volver al mapa", "/").classes(
@@ -180,7 +177,7 @@ def render_help_point_detail(
                     ui.label(f"Contacto: {point.coordinator_contact}").classes(
                         "text-base text-slate-700"
                     )
-                _render_updated_at(point.updated_at)
+                render_updated_at(point.updated_at)
 
             with ui.grid().classes("w-full grid-cols-1 md:grid-cols-2 gap-3"):
                 with ui.column().classes(
@@ -206,7 +203,17 @@ def render_help_point_detail(
                     ui.label("Recibe ayuda en").classes(
                         "text-lg font-semibold text-slate-900"
                     ).props("role=heading aria-level=2")
-                    ui.label(reception_location).classes("text-slate-700")
+                    for location in point.locations:
+                        reception_location = ", ".join(
+                            value
+                            for value in (
+                                location.address,
+                                location.city,
+                                location.department,
+                            )
+                            if value
+                        )
+                        ui.label(reception_location).classes("text-slate-700")
 
             with ui.column().classes(
                 "w-full gap-3 rounded-2xl border border-slate-200 bg-white p-4 md:p-6"
@@ -300,9 +307,10 @@ def render_help_point_detail(
                 ui.label("Ubicación del punto de recepción").classes(
                     "text-lg font-semibold text-slate-900"
                 ).props("role=heading aria-level=2")
+                first_location = point.locations[0]
                 render_help_point_map(
                     (point,),
                     categories,
-                    center=(point.latitude, point.longitude),
+                    center=(first_location.latitude, first_location.longitude),
                     zoom=15,
                 )

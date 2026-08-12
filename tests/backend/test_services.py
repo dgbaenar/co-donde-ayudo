@@ -7,7 +7,13 @@ from uuid import uuid4
 
 from backend.application.services import HelpPointService
 from backend.domain.emergency_scope import AFFECTED_DEPARTMENTS, list_affected_departments
-from backend.domain.models import Commitment, CreateHelpPoint, HelpPointCategory, NeedStatus
+from backend.domain.models import (
+    Commitment,
+    CreateHelpPoint,
+    HelpPointCategory,
+    NeedStatus,
+    NewHelpPointLocation,
+)
 
 
 class FakeRepository:
@@ -108,13 +114,17 @@ class HelpPointServiceTests(unittest.TestCase):
         values = {
             "name": "Parque Central",
             "description": "Familias evacuadas reciben apoyo.",
-            "city": "Cali",
-            "department": "Valle del Cauca",
-            "address": "Calle 5 # 10-20",
             "affected_city": "Roldanillo",
             "affected_department": "Valle del Cauca",
-            "latitude": 3.4516,
-            "longitude": -76.5320,
+            "locations": (
+                NewHelpPointLocation(
+                    address="Calle 5 # 10-20",
+                    city="Cali",
+                    department="Valle del Cauca",
+                    latitude=3.4516,
+                    longitude=-76.5320,
+                ),
+            ),
             "coordinator_name": "Ana",
             "coordinator_contact": "Contacto local",
             "category_ids": self.categories,
@@ -166,11 +176,27 @@ class HelpPointServiceTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "important_links"):
             self.command(important_links=(overly_long,))
 
-    def test_create_command_rejects_empty_location_fields(self) -> None:
-        for field in ("address", "affected_city", "affected_department"):
+    def test_create_command_rejects_empty_affected_location_fields(self) -> None:
+        for field in ("affected_city", "affected_department"):
             with self.subTest(field=field):
                 with self.assertRaisesRegex(ValueError, field):
                     self.command(**{field: "   "})
+
+    def test_create_command_rejects_empty_physical_location_fields(self) -> None:
+        for field in ("address", "city", "department"):
+            with self.subTest(field=field):
+                location = dataclasses.replace(
+                    NewHelpPointLocation(
+                        address="Calle 5 # 10-20",
+                        city="Cali",
+                        department="Valle del Cauca",
+                        latitude=3.4516,
+                        longitude=-76.5320,
+                    ),
+                    **{field: "   "},
+                )
+                with self.assertRaisesRegex(ValueError, field):
+                    self.command(locations=(location,))
 
     def test_create_command_accepts_missing_affected_city(self) -> None:
         command = self.command(affected_city=None)
@@ -192,7 +218,17 @@ class HelpPointServiceTests(unittest.TestCase):
 
     def test_create_rejects_municipality_outside_selected_department(self) -> None:
         invalid_affected = self.command(affected_city="Medellín")
-        invalid_physical = self.command(city="Medellín")
+        invalid_physical = self.command(
+            locations=(
+                NewHelpPointLocation(
+                    address="Calle 5 # 10-20",
+                    city="Medellín",
+                    department="Valle del Cauca",
+                    latitude=3.4516,
+                    longitude=-76.5320,
+                ),
+            )
+        )
 
         with self.assertRaisesRegex(ValueError, "affected city"):
             self.service.create_help_point(invalid_affected)
@@ -215,8 +251,11 @@ class HelpPointServiceTests(unittest.TestCase):
     def test_create_keeps_physical_and_affected_locations_separate(self) -> None:
         created = self.service.create_help_point(self.command()).point
 
-        self.assertEqual((created.city, created.department), ("Cali", "Valle del Cauca"))
-        self.assertEqual(created.address, "Calle 5 # 10-20")
+        self.assertEqual(
+            (created.locations[0].city, created.locations[0].department),
+            ("Cali", "Valle del Cauca"),
+        )
+        self.assertEqual(created.locations[0].address, "Calle 5 # 10-20")
         self.assertEqual(
             (created.affected_city, created.affected_department),
             ("Roldanillo", "Valle del Cauca"),
@@ -227,7 +266,9 @@ class HelpPointServiceTests(unittest.TestCase):
 
         public = self.service.to_public(point)
 
-        self.assertEqual(public.address, "Calle 5 # 10-20")
+        self.assertEqual(public.locations[0].address, "Calle 5 # 10-20")
+        self.assertEqual(public.locations[0].city, "Cali")
+        self.assertEqual(public.locations[0].department, "Valle del Cauca")
         self.assertEqual(public.affected_city, "Roldanillo")
         self.assertEqual(public.affected_department, "Valle del Cauca")
 
@@ -270,7 +311,17 @@ class HelpPointServiceTests(unittest.TestCase):
 
     def test_rejects_invalid_coordinates_and_missing_categories(self) -> None:
         with self.assertRaisesRegex(ValueError, "latitude"):
-            self.command(latitude=91)
+            self.command(
+                locations=(
+                    NewHelpPointLocation(
+                        address="Calle 5 # 10-20",
+                        city="Cali",
+                        department="Valle del Cauca",
+                        latitude=91,
+                        longitude=-76.5320,
+                    ),
+                )
+            )
         with self.assertRaisesRegex(ValueError, "category"):
             self.command(category_ids=())
 
@@ -363,6 +414,150 @@ class HelpPointServiceTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "HelpPointCategory"):
             self.service.update_help_point_category(
                 created, created.admin_token, "Not a real category"
+            )
+
+    def test_update_help_point_links_delegates_and_persists(self) -> None:
+        created = self.service.create_help_point(self.command()).point
+
+        updated = self.service.update_help_point_links(
+            created,
+            created.admin_token,
+            ("https://example.com/ayuda", "  http://otro.example.co  "),
+        )
+
+        self.assertIs(self.repository.updated, updated)
+        self.assertEqual(
+            updated.important_links,
+            ("https://example.com/ayuda", "http://otro.example.co"),
+        )
+
+    def test_update_help_point_links_rejects_incorrect_admin_token(self) -> None:
+        created = self.service.create_help_point(self.command()).point
+
+        with self.assertRaisesRegex(PermissionError, "admin token"):
+            self.service.update_help_point_links(
+                created, "incorrect", ("https://example.com/ayuda",)
+            )
+
+    def test_update_help_point_links_rejects_invalid_links(self) -> None:
+        created = self.service.create_help_point(self.command()).point
+        overly_long = "https://example.com/" + ("a" * 490)
+
+        with self.assertRaisesRegex(ValueError, "important_links"):
+            self.service.update_help_point_links(
+                created, created.admin_token, ("javascript:alert(1)",)
+            )
+        with self.assertRaisesRegex(ValueError, "important_links"):
+            self.service.update_help_point_links(created, created.admin_token, (overly_long,))
+        with self.assertRaisesRegex(ValueError, "important_links"):
+            self.service.update_help_point_links(
+                created,
+                created.admin_token,
+                ("https://example.com/ayuda", "https://example.com/ayuda"),
+            )
+
+    def test_update_help_point_links_normalizes_empty_input_to_empty_tuple(self) -> None:
+        created = self.service.create_help_point(
+            self.command(important_links=("https://example.com/ayuda",))
+        ).point
+
+        cleared = self.service.update_help_point_links(created, created.admin_token, ())
+
+        self.assertEqual(cleared.important_links, ())
+        self.assertEqual(self.repository.updated, cleared)
+
+    def test_update_help_point_links_ignores_blank_entries(self) -> None:
+        created = self.service.create_help_point(self.command()).point
+
+        updated = self.service.update_help_point_links(
+            created, created.admin_token, ("   ", "  https://example.com/ayuda  ", "")
+        )
+
+        self.assertEqual(updated.important_links, ("https://example.com/ayuda",))
+        self.assertEqual(self.repository.updated, updated)
+
+    def test_create_persists_multiple_locations(self) -> None:
+        created = self.service.create_help_point(
+            self.command(
+                locations=(
+                    NewHelpPointLocation(
+                        address="Calle 5 # 10-20",
+                        city="Cali",
+                        department="Valle del Cauca",
+                        latitude=3.4516,
+                        longitude=-76.5320,
+                    ),
+                    NewHelpPointLocation(
+                        address="Calle 7 # 40-50",
+                        city="Cali",
+                        department="Valle del Cauca",
+                        latitude=3.46,
+                        longitude=-76.53,
+                    ),
+                )
+            )
+        ).point
+
+        self.assertEqual(len(created.locations), 2)
+        self.assertEqual(
+            [location.address for location in created.locations],
+            ["Calle 5 # 10-20", "Calle 7 # 40-50"],
+        )
+        self.assertEqual(len(self.repository.created.locations), 2)
+
+    def test_update_help_point_locations_replaces_the_full_list(self) -> None:
+        created = self.service.create_help_point(self.command()).point
+
+        updated = self.service.update_help_point_locations(
+            created,
+            created.admin_token,
+            (
+                NewHelpPointLocation(
+                    address="  Calle 7 # 40-50  ",
+                    city="  Cali  ",
+                    department="  Valle del Cauca  ",
+                    latitude=3.46,
+                    longitude=-76.53,
+                ),
+            ),
+        )
+
+        self.assertIs(self.repository.updated, updated)
+        self.assertEqual(len(updated.locations), 1)
+        self.assertEqual(updated.locations[0].address, "Calle 7 # 40-50")
+        self.assertEqual(updated.locations[0].city, "Cali")
+        self.assertEqual(updated.locations[0].department, "Valle del Cauca")
+
+    def test_update_help_point_locations_rejects_empty_list(self) -> None:
+        created = self.service.create_help_point(self.command()).point
+
+        with self.assertRaisesRegex(ValueError, "at least one location"):
+            self.service.update_help_point_locations(created, created.admin_token, ())
+
+    def test_update_help_point_locations_rejects_bad_coordinates(self) -> None:
+        created = self.service.create_help_point(self.command()).point
+
+        with self.assertRaisesRegex(ValueError, "latitude"):
+            self.service.update_help_point_locations(
+                created,
+                created.admin_token,
+                (NewHelpPointLocation("Calle 5", "Cali", "Valle del Cauca", 91, -76.5),),
+            )
+        with self.assertRaisesRegex(ValueError, "longitude"):
+            self.service.update_help_point_locations(
+                created,
+                created.admin_token,
+                (NewHelpPointLocation("Calle 5", "Cali", "Valle del Cauca", 3.4, -181),),
+            )
+
+    def test_update_help_point_locations_rejects_incorrect_admin_token(self) -> None:
+        created = self.service.create_help_point(self.command()).point
+
+        with self.assertRaisesRegex(PermissionError, "admin token"):
+            self.service.update_help_point_locations(
+                created,
+                "incorrect",
+                (NewHelpPointLocation("Calle 5", "Cali", "Valle del Cauca", 3.4, -76.5),),
             )
 
     def test_lists_active_categories_from_repository(self) -> None:

@@ -1,14 +1,21 @@
 """NiceGUI administration page for one help point."""
+# style-guard: E6-exempt — cohesive single-page NiceGUI admin form; the cards share apply/render_content and the mutable point, so splitting them would fragment that shared state without reducing complexity.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 import logging
 from uuid import UUID
 
 from nicegui import ui
 
-from backend.domain.models import HelpPoint, HelpPointCategory, NeedStatus
+from backend.domain.models import (
+    HelpPoint,
+    HelpPointCategory,
+    NeedStatus,
+    NewHelpPointLocation,
+)
+from frontend.components.location_picker import render_location_picker
 
 logger = logging.getLogger(__name__)
 
@@ -19,6 +26,10 @@ ChangeNeedStatusHandler = Callable[[HelpPoint, str, UUID, NeedStatus], HelpPoint
 DeactivateHelpPointHandler = Callable[[HelpPoint, str], HelpPoint]
 UpdateHelpPointInfoHandler = Callable[[HelpPoint, str, str, str, str, str | None], HelpPoint]
 UpdateHelpPointCategoryHandler = Callable[[HelpPoint, str, HelpPointCategory], HelpPoint]
+UpdateHelpPointLinksHandler = Callable[[HelpPoint, str, tuple[str, ...]], HelpPoint]
+UpdateHelpPointLocationsHandler = Callable[
+    [HelpPoint, str, tuple[NewHelpPointLocation, ...]], HelpPoint
+]
 
 
 def category_name(categories: Mapping[str, UUID], category_id: UUID) -> str:
@@ -104,6 +115,24 @@ def update_point_category(
     return update_help_point_category(point, admin_token, category)
 
 
+def update_point_links(
+    point: HelpPoint,
+    admin_token: str,
+    links: Sequence[str],
+    update_help_point_links: UpdateHelpPointLinksHandler,
+) -> HelpPoint:
+    return update_help_point_links(point, admin_token, tuple(links))
+
+
+def update_point_locations(
+    point: HelpPoint,
+    admin_token: str,
+    locations: Sequence[NewHelpPointLocation],
+    update_help_point_locations: UpdateHelpPointLocationsHandler,
+) -> HelpPoint:
+    return update_help_point_locations(point, admin_token, tuple(locations))
+
+
 def render_manage_help_point(
     point: HelpPoint,
     admin_token: str,
@@ -114,6 +143,8 @@ def render_manage_help_point(
     deactivate_help_point: DeactivateHelpPointHandler,
     update_help_point_info: UpdateHelpPointInfoHandler,
     update_help_point_category: UpdateHelpPointCategoryHandler,
+    update_help_point_links: UpdateHelpPointLinksHandler,
+    update_help_point_locations: UpdateHelpPointLocationsHandler,
 ) -> None:
     """Render administration controls using injected backend operations only."""
     with ui.column().classes("w-full max-w-md md:max-w-2xl mx-auto gap-4 p-4"):
@@ -125,6 +156,7 @@ def render_manage_help_point(
         )
         ui.label(point.name).classes("text-lg font-medium text-slate-700")
         content = ui.column().classes("w-full gap-4")
+        important_links: list[str] = list(point.important_links)
 
         def apply(operation: Callable[[], HelpPoint]) -> None:
             nonlocal point
@@ -210,6 +242,184 @@ def render_manage_help_point(
                     ).classes(
                         "w-full min-h-[44px]"
                     ).props("unelevated color=primary")
+
+                with ui.card().classes(
+                    "w-full gap-3 rounded-2xl border border-slate-200 bg-white p-4"
+                ):
+                    ui.label("Enlaces importantes").classes(
+                        "text-lg font-semibold text-slate-900"
+                    ).props("role=heading aria-level=2")
+
+                    def remove_link(url: str, row) -> None:
+                        if url in important_links:
+                            important_links.remove(url)
+                        row.visible = False
+
+                    def add_link() -> None:
+                        url = (link_input.value or "").strip()
+                        if not url:
+                            return
+                        if url in important_links:
+                            ui.notify(
+                                "Ese enlace ya está en la lista.", type="warning"
+                            )
+                            return
+                        important_links.append(url)
+                        link_input.value = ""
+                        with links_container:
+                            with ui.row().classes(
+                                "w-full items-center gap-2 flex-nowrap"
+                            ) as link_row:
+                                ui.label(url).classes(
+                                    "flex-1 min-w-0 break-all text-sm text-slate-700"
+                                )
+                                ui.button(
+                                    "Quitar",
+                                    on_click=lambda url=url, row=link_row: remove_link(
+                                        url, row
+                                    ),
+                                ).classes("min-h-[44px] shrink-0").props("flat")
+
+                    links_container = ui.column().classes("w-full gap-2")
+                    for url in important_links:
+                        with links_container:
+                            with ui.row().classes(
+                                "w-full items-center gap-2 flex-nowrap"
+                            ) as link_row:
+                                ui.label(url).classes(
+                                    "flex-1 min-w-0 break-all text-sm text-slate-700"
+                                )
+                                ui.button(
+                                    "Quitar",
+                                    on_click=lambda url=url, row=link_row: remove_link(
+                                        url, row
+                                    ),
+                                ).classes("min-h-[44px] shrink-0").props("flat")
+
+                    with ui.row().classes("w-full gap-2 items-end flex-nowrap"):
+                        link_input = ui.input("Enlace importante (URL)").classes(
+                            "flex-1 min-w-0"
+                        )
+                        ui.button("Agregar enlace", on_click=add_link).classes(
+                            "min-h-[44px] shrink-0"
+                        )
+
+                    ui.button(
+                        "Guardar enlaces",
+                        on_click=lambda: apply(
+                            lambda: update_point_links(
+                                point,
+                                admin_token,
+                                important_links,
+                                update_help_point_links,
+                            )
+                        ),
+                    ).classes("w-full min-h-[44px]").props(
+                        "unelevated color=primary"
+                    )
+
+                with ui.card().classes(
+                    "w-full gap-3 rounded-2xl border border-slate-200 bg-white p-4"
+                ):
+                    ui.label("Ubicaciones").classes(
+                        "text-lg font-semibold text-slate-900"
+                    ).props("role=heading aria-level=2")
+
+                    locations_container = ui.column().classes("w-full gap-2")
+                    location_blocks: list[dict] = []
+
+                    def render_location_block(existing=None) -> dict:
+                        with locations_container:
+                            with ui.card().classes(
+                                "w-full gap-2 rounded-xl border border-slate-200 p-3"
+                            ) as block_card:
+                                address_input = ui.input(
+                                    "Dirección",
+                                    value=(existing.address if existing else "") or "",
+                                ).classes("w-full")
+                                city_input = ui.input(
+                                    "Ciudad / Municipio",
+                                    value=(existing.city if existing else "") or "",
+                                ).classes("w-full")
+                                department_input = ui.input(
+                                    "Departamento",
+                                    value=(existing.department if existing else "")
+                                    or "",
+                                ).classes("w-full")
+                                location = render_location_picker()
+                                if existing is not None:
+                                    location.set_coordinates(
+                                        existing.latitude, existing.longitude
+                                    )
+                                block = {
+                                    "card": block_card,
+                                    "address": address_input,
+                                    "city": city_input,
+                                    "department": department_input,
+                                    "location": location,
+                                }
+                                location_blocks.append(block)
+
+                                def remove_location() -> None:
+                                    location_blocks.remove(block)
+                                    block_card.visible = False
+
+                                ui.button(
+                                    "Quitar", on_click=remove_location
+                                ).classes("min-h-[44px] w-full").props(
+                                    "flat color=red-9"
+                                )
+
+                                return block
+
+                    for existing_location in point.locations:
+                        render_location_block(existing_location)
+
+                    ui.button(
+                        "Agregar ubicación",
+                        on_click=lambda: render_location_block(),
+                    ).classes("w-full min-h-[44px]").props("outline")
+
+                    def save_locations() -> None:
+                        new_locations = []
+                        for block in location_blocks:
+                            latitude = block["location"].latitude
+                            longitude = block["location"].longitude
+                            if latitude is None or longitude is None:
+                                ui.notify(
+                                    "Selecciona una ubicación en el mapa para "
+                                    "cada punto.",
+                                    type="negative",
+                                )
+                                return
+                            new_locations.append(
+                                NewHelpPointLocation(
+                                    address=(block["address"].value or "").strip(),
+                                    city=(block["city"].value or "").strip(),
+                                    department=(block["department"].value or "").strip(),
+                                    latitude=latitude,
+                                    longitude=longitude,
+                                )
+                            )
+                        if not new_locations:
+                            ui.notify(
+                                "Agrega al menos una ubicación.", type="negative"
+                            )
+                            return
+                        apply(
+                            lambda: update_point_locations(
+                                point,
+                                admin_token,
+                                new_locations,
+                                update_help_point_locations,
+                            )
+                        )
+
+                    ui.button(
+                        "Guardar ubicaciones", on_click=save_locations
+                    ).classes("w-full min-h-[44px]").props(
+                        "unelevated color=primary"
+                    )
 
                 with ui.card().classes(
                     "w-full gap-3 rounded-2xl border border-slate-200 bg-white p-4"

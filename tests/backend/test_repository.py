@@ -5,7 +5,14 @@ from dataclasses import replace
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
-from backend.domain.models import Commitment, HelpPoint, HelpPointCategory, Need, NeedStatus
+from backend.domain.models import (
+    Commitment,
+    HelpPoint,
+    HelpPointCategory,
+    HelpPointLocation,
+    Need,
+    NeedStatus,
+)
 from backend.infrastructure.postgres.orm_models import CommitmentRow, HelpPointRow, NeedRow
 from backend.infrastructure.postgres.repository import PostgresHelpPointRepository
 
@@ -77,12 +84,23 @@ def point(
     affected_city: str | None = "Roldanillo",
     important_links: tuple[str, ...] = (),
     category: HelpPointCategory = HelpPointCategory.DONATION_COLLECTION,
+    locations: tuple[HelpPointLocation, ...] | None = None,
 ) -> HelpPoint:
+    if locations is None:
+        locations = (
+            HelpPointLocation(
+                id=UUID("00000000-0000-0000-0000-000000000020"),
+                address="Calle 5 # 10-20",
+                city="Cali",
+                department="Valle del Cauca",
+                latitude=3.4,
+                longitude=-76.5,
+            ),
+        )
     return HelpPoint(
         id=UUID("00000000-0000-0000-0000-000000000001"), name="Parque", description="Ayuda",
-        city="Cali", department="Valle del Cauca", address="Calle 5 # 10-20",
         affected_city=affected_city, affected_department="Valle del Cauca",
-        latitude=3.4, longitude=-76.5, coordinator_name="Ana",
+        locations=locations, coordinator_name="Ana",
         coordinator_contact="Contacto", admin_token="x" * 40, active=True,
         needs=(Need(UUID("00000000-0000-0000-0000-000000000010"), UUID("00000000-0000-0000-0000-000000000100"), NeedStatus.NEEDS_HELP),),
         category=category,
@@ -100,11 +118,15 @@ class RepositoryTests(unittest.TestCase):
         self.assertEqual(result, point())
         self.assertIsInstance(session.added[0], HelpPointRow)
         self.assertEqual(len(session.added[0].needs), 1)
-        self.assertEqual(session.added[0].direccion, "Calle 5 # 10-20")
+        self.assertEqual(len(session.added[0].locations), 1)
+        location_row = session.added[0].locations[0]
+        self.assertEqual(location_row.direccion, "Calle 5 # 10-20")
+        self.assertEqual(location_row.ciudad, "Cali")
+        self.assertEqual(location_row.departamento, "Valle del Cauca")
         self.assertEqual(session.added[0].ciudad_afectada, "Roldanillo")
         self.assertEqual(session.added[0].departamento_afectado, "Valle del Cauca")
         restored = PostgresHelpPointRepository._point_from_row(session.added[0])
-        self.assertEqual(restored.address, point().address)
+        self.assertEqual(restored.locations, point().locations)
         self.assertEqual(restored.affected_city, point().affected_city)
         self.assertEqual(restored.affected_department, point().affected_department)
 
@@ -192,6 +214,61 @@ class RepositoryTests(unittest.TestCase):
         self.assertIs(existing.needs[0], existing_need)
         self.assertEqual(existing_need.estado, NeedStatus.COVERED.value)
         self.assertEqual(session.deleted, [])
+
+    def test_update_replaces_locations_by_id(self) -> None:
+        location_a = HelpPointLocation(
+            UUID("00000000-0000-0000-0000-000000000021"),
+            "A",
+            "Cali",
+            "Valle del Cauca",
+            3.4,
+            -76.5,
+        )
+        location_b = HelpPointLocation(
+            UUID("00000000-0000-0000-0000-000000000022"),
+            "B",
+            "Cali",
+            "Valle del Cauca",
+            3.5,
+            -76.6,
+        )
+        original = point(locations=(location_a, location_b))
+        existing = PostgresHelpPointRepository._row_from_point(original)
+        session = Session()
+        session.rows[original.id] = existing
+        updated = replace(
+            original,
+            locations=(
+                HelpPointLocation(
+                    UUID("00000000-0000-0000-0000-000000000022"),
+                    "B2",
+                    "Cali",
+                    "Valle del Cauca",
+                    3.6,
+                    -76.7,
+                ),
+                HelpPointLocation(
+                    UUID("00000000-0000-0000-0000-000000000023"),
+                    "C",
+                    "Cali",
+                    "Valle del Cauca",
+                    3.7,
+                    -76.8,
+                ),
+            ),
+        )
+
+        result = PostgresHelpPointRepository(Factory(session)).update_help_point(updated)
+
+        self.assertEqual(result, updated)
+        self.assertEqual([location.id for location in session.deleted], [location_a.id])
+        kept = next(location for location in existing.locations if location.id == location_b.id)
+        self.assertEqual(kept.direccion, "B2")
+        inserted_ids = {location.id for location in existing.locations} - {
+            location_a.id,
+            location_b.id,
+        }
+        self.assertEqual(inserted_ids, {UUID("00000000-0000-0000-0000-000000000023")})
 
     def test_point_from_row_maps_commitments_onto_their_need(self) -> None:
         original = point()

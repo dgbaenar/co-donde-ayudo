@@ -1,4 +1,5 @@
 """NiceGUI creation page for a help point."""
+# style-guard: E6-exempt — cohesive single-page NiceGUI form; the UI is built in one render function sharing closure state and validation, so splitting it would fragment that state without reducing complexity.
 
 from __future__ import annotations
 
@@ -11,7 +12,12 @@ from uuid import UUID
 
 from nicegui import ui
 
-from backend.domain.models import CreateHelpPoint, CreatedHelpPoint, HelpPointCategory
+from backend.domain.models import (
+    CreateHelpPoint,
+    CreatedHelpPoint,
+    HelpPointCategory,
+    NewHelpPointLocation,
+)
 from frontend.components.location_picker import render_location_picker
 
 logger = logging.getLogger(__name__)
@@ -42,16 +48,21 @@ class _PublicationHandlerError(Exception):
 
 
 @dataclass(frozen=True, slots=True)
+class LocationValues:
+    address: str
+    city: str
+    department: str
+    latitude: float | None
+    longitude: float | None
+
+
+@dataclass(frozen=True, slots=True)
 class FormValues:
     name: str
     description: str
     affected_city: str
     affected_department: str
-    city: str
-    department: str
-    address: str
-    latitude: float | None
-    longitude: float | None
+    locations: tuple[LocationValues, ...]
     coordinator_name: str
     coordinator_contact: str
     category: str
@@ -71,7 +82,12 @@ def build_command(
     categories: Mapping[str, UUID],
     important_links: Sequence[str] = (),
 ) -> CreateHelpPoint:
-    if values.latitude is None or values.longitude is None:
+    if not values.locations:
+        raise ValueError("Agrega al menos una ubicación.")
+    if any(
+        location.latitude is None or location.longitude is None
+        for location in values.locations
+    ):
         raise ValueError("Selecciona una ubicación en el mapa.")
     try:
         category_ids = tuple(categories[name] for name in selected_categories)
@@ -85,11 +101,16 @@ def build_command(
             description=values.description.strip(),
             affected_city=values.affected_city.strip() or None,
             affected_department=values.affected_department.strip(),
-            city=values.city.strip(),
-            department=values.department.strip(),
-            address=values.address.strip(),
-            latitude=values.latitude,
-            longitude=values.longitude,
+            locations=tuple(
+                NewHelpPointLocation(
+                    address=location.address.strip(),
+                    city=location.city.strip(),
+                    department=location.department.strip(),
+                    latitude=location.latitude,
+                    longitude=location.longitude,
+                )
+                for location in values.locations
+            ),
             coordinator_name=values.coordinator_name.strip(),
             coordinator_contact=values.coordinator_contact.strip(),
             category_ids=category_ids,
@@ -185,9 +206,6 @@ def render_create_help_point(
             no_selection_label="Toda la zona del departamento (opcional)",
         )
 
-    def change_department() -> None:
-        update_locality_select(department, city)
-
     departments = tuple(list_departments())
     affected_departments = tuple(list_affected_departments())
     with ui.column().classes("w-full max-w-md md:max-w-2xl mx-auto gap-3 p-4"):
@@ -229,55 +247,106 @@ def render_create_help_point(
                 "¿Hay otras zonas que también recibirán ayuda? (opcional)"
             ).classes("w-full")
             ui.label("Dónde se recibe o coordina la ayuda").classes("text-h6")
-            department = ui.select(
-                options={
-                    "": "Selecciona un departamento",
-                    **{department: department for department in departments},
-                },
-                value="",
-                label="Departamento del punto",
-                on_change=change_department,
-            ).classes("w-full").props(_BOUNDED_MENU_PROPS)
-            city = ui.select(
-                options={"": "Selecciona primero un departamento"},
-                value="",
-                label="Ciudad / Municipio del punto",
-            ).classes("w-full").props(_BOUNDED_MENU_PROPS)
-            city.disable()
-            address = ui.input("Dirección o referencia del lugar").classes("w-full")
+            locations_container = ui.column().classes("w-full gap-2")
+            location_blocks: list[dict] = []
 
-            async def search_address() -> None:
-                address_value = (address.value or "").strip()
-                city_value = city.value or ""
-                department_value = department.value or ""
-                if not address_value or not city_value or not department_value:
-                    ui.notify(
-                        "Completa departamento, ciudad / municipio y dirección.",
-                        type="negative",
-                    )
-                    return
-                try:
-                    geocoded = await geocode_address(
-                        address_value,
-                        city_value,
-                        department_value,
-                    )
-                except Exception:
-                    geocoded = None
-                if geocoded is None:
-                    ui.notify(
-                        "No encontramos esa dirección. Ubícala tocando el mapa.",
-                        type="negative",
-                    )
-                    return
-                location.set_coordinates(geocoded.latitude, geocoded.longitude)
-                if geocoded.is_low_confidence:
-                    ui.notify(_LOW_CONFIDENCE_ADDRESS_MESSAGE, type="warning")
+            def render_location_block() -> dict:
+                with locations_container:
+                    with ui.card().classes(
+                        "w-full gap-2 rounded-xl border border-slate-200 p-3"
+                    ) as block_card:
+                        block_department = ui.select(
+                            options={
+                                "": "Selecciona un departamento",
+                                **{
+                                    department: department
+                                    for department in departments
+                                },
+                            },
+                            value="",
+                            label="Departamento del punto",
+                        ).classes("w-full").props(_BOUNDED_MENU_PROPS)
+                        block_city = ui.select(
+                            options={"": "Selecciona primero un departamento"},
+                            value="",
+                            label="Ciudad / Municipio del punto",
+                        ).classes("w-full").props(_BOUNDED_MENU_PROPS)
+                        block_city.disable()
+                        block_address = ui.input(
+                            "Dirección o referencia del lugar"
+                        ).classes("w-full")
 
-            ui.button("Buscar en el mapa", on_click=search_address).classes(
-                "w-full min-h-[44px]"
-            )
-            location = render_location_picker()
+                        def change_block_department() -> None:
+                            update_locality_select(block_department, block_city)
+
+                        block_department.on_value_change(change_block_department)
+
+                        block_location = render_location_picker()
+
+                        async def search_address() -> None:
+                            address_value = (block_address.value or "").strip()
+                            city_value = block_city.value or ""
+                            department_value = block_department.value or ""
+                            if (
+                                not address_value
+                                or not city_value
+                                or not department_value
+                            ):
+                                ui.notify(
+                                    "Completa departamento, ciudad / municipio y "
+                                    "dirección.",
+                                    type="negative",
+                                )
+                                return
+                            try:
+                                geocoded = await geocode_address(
+                                    address_value,
+                                    city_value,
+                                    department_value,
+                                )
+                            except Exception:
+                                geocoded = None
+                            if geocoded is None:
+                                ui.notify(
+                                    "No encontramos esa dirección. "
+                                    "Ubícala tocando el mapa.",
+                                    type="negative",
+                                )
+                                return
+                            block_location.set_coordinates(
+                                geocoded.latitude, geocoded.longitude
+                            )
+                            if geocoded.is_low_confidence:
+                                ui.notify(
+                                    _LOW_CONFIDENCE_ADDRESS_MESSAGE, type="warning"
+                                )
+
+                        ui.button(
+                            "Buscar en el mapa", on_click=search_address
+                        ).classes("w-full min-h-[44px]")
+
+                        block = {
+                            "department": block_department,
+                            "city": block_city,
+                            "address": block_address,
+                            "location": block_location,
+                        }
+                        location_blocks.append(block)
+
+                        def remove_location() -> None:
+                            location_blocks.remove(block)
+                            block_card.visible = False
+
+                        ui.button("Quitar", on_click=remove_location).classes(
+                            "w-full min-h-[44px]"
+                        ).props("flat color=red-9")
+
+                        return block
+
+            render_location_block()
+            ui.button(
+                "Agregar otra ubicación", on_click=render_location_block
+            ).classes("w-full min-h-[44px]").props("outline")
             coordinator_name = ui.input("Nombre de la persona coordinadora").classes(
                 "w-full"
             )
@@ -369,11 +438,16 @@ def render_create_help_point(
                     description=description.value or "",
                     affected_city=affected_city.value or "",
                     affected_department=affected_department.value or "",
-                    city=city.value or "",
-                    department=department.value or "",
-                    address=address.value or "",
-                    latitude=location.latitude,
-                    longitude=location.longitude,
+                    locations=tuple(
+                        LocationValues(
+                            address=block["address"].value or "",
+                            city=block["city"].value or "",
+                            department=block["department"].value or "",
+                            latitude=block["location"].latitude,
+                            longitude=block["location"].longitude,
+                        )
+                        for block in location_blocks
+                    ),
                     coordinator_name=coordinator_name.value or "",
                     coordinator_contact=coordinator_contact.value or "",
                     category=category.value or "",

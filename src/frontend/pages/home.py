@@ -134,14 +134,19 @@ def render_home(
                             ).classes(
                                 "text-xs text-slate-500"
                             )
-                            reception_location = ", ".join(
-                                value
-                                for value in (point.address, point.city, point.department)
-                                if value
-                            )
-                            ui.label(
-                                f"Recibe ayuda en: {reception_location}"
-                            ).classes("text-xs text-slate-500")
+                            for location in point.locations:
+                                reception_location = ", ".join(
+                                    value
+                                    for value in (
+                                        location.address,
+                                        location.city,
+                                        location.department,
+                                    )
+                                    if value
+                                )
+                                ui.label(
+                                    f"Recibe ayuda en: {reception_location}"
+                                ).classes("text-xs text-slate-500")
                             ui.label(point.description).classes(
                                 "text-sm text-slate-700 line-clamp-2"
                             )

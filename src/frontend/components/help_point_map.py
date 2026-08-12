@@ -8,7 +8,7 @@ from uuid import UUID
 
 from nicegui import ui
 
-from backend.domain.models import NeedStatus, PublicHelpPoint
+from backend.domain.models import HelpPointLocation, NeedStatus, PublicHelpPoint
 
 
 COLOMBIA_CENTER = (4.5709, -74.2973)
@@ -31,6 +31,7 @@ def status_line(status: NeedStatus, name: str) -> str:
 def build_popup_html(
     point: PublicHelpPoint,
     categories: Mapping[str, UUID],
+    location: HelpPointLocation,
 ) -> str:
     """Build a popup after escaping every dynamic value."""
     category_names = {category_id: name for name, category_id in categories.items()}
@@ -46,7 +47,7 @@ def build_popup_html(
         else f"{point.affected_city}, {point.affected_department}"
     )
     reception_location = ", ".join(
-        value for value in (point.address, point.city, point.department) if value
+        value for value in (location.address, location.city, location.department) if value
     )
     return (
         f"<strong>{escape(point.name)}</strong>"
@@ -72,8 +73,13 @@ def render_help_point_map(
     for point in points:
         if not point.active:
             continue
-        marker = map_element.marker(latlng=(point.latitude, point.longitude))
-        marker_popups.append((marker, build_popup_html(point, categories)))
+        for location in point.locations:
+            marker = map_element.marker(
+                latlng=(location.latitude, location.longitude)
+            )
+            marker_popups.append(
+                (marker, build_popup_html(point, categories, location))
+            )
 
     def bind_popups() -> None:
         for marker, popup_html in marker_popups:

@@ -14,8 +14,10 @@ from backend.domain.models import (
     CreatedHelpPoint,
     HelpPoint,
     HelpPointCategory,
+    HelpPointLocation,
     Need,
     NeedStatus,
+    NewHelpPointLocation,
     PublicHelpPoint,
     validate_optional,
     validate_required,
@@ -54,16 +56,17 @@ class HelpPointService:
         self._location_catalog = location_catalog
 
     def create_help_point(self, command: CreateHelpPoint) -> CreatedHelpPoint:
-        city = command.city.strip()
-        department = command.department.strip()
         affected_city = (
             command.affected_city.strip() if command.affected_city is not None else ""
         ) or None
         affected_department = command.affected_department.strip()
         if affected_department not in AFFECTED_DEPARTMENTS:
             raise ValueError("affected department is outside active emergency scope")
-        if city not in self._location_catalog.list_localities(department):
-            raise ValueError("city does not belong to department")
+        for location in command.locations:
+            city = location.city.strip()
+            department = location.department.strip()
+            if city not in self._location_catalog.list_localities(department):
+                raise ValueError("city does not belong to department")
         if affected_city is not None and affected_city not in (
             self._location_catalog.list_localities(affected_department)
         ):
@@ -73,17 +76,24 @@ class HelpPointService:
             Need(id=uuid4(), category_id=category_id, status=NeedStatus.NEEDS_HELP)
             for category_id in command.category_ids
         )
+        locations = tuple(
+            HelpPointLocation(
+                id=uuid4(),
+                address=location.address.strip(),
+                city=location.city.strip(),
+                department=location.department.strip(),
+                latitude=location.latitude,
+                longitude=location.longitude,
+            )
+            for location in command.locations
+        )
         point = HelpPoint(
             id=uuid4(),
             name=command.name.strip(),
             description=command.description.strip(),
-            city=city,
-            department=department,
-            address=command.address.strip(),
             affected_city=affected_city,
             affected_department=affected_department,
-            latitude=command.latitude,
-            longitude=command.longitude,
+            locations=locations,
             coordinator_name=command.coordinator_name.strip(),
             coordinator_contact=command.coordinator_contact.strip(),
             admin_token=token,
@@ -147,6 +157,53 @@ class HelpPointService:
         if not isinstance(category, HelpPointCategory):
             raise ValueError("category must be a valid HelpPointCategory")
         return self._repository.update_help_point(replace(point, category=category))
+
+    def update_help_point_links(
+        self,
+        point: HelpPoint,
+        admin_token: str,
+        important_links: tuple[str, ...],
+    ) -> HelpPoint:
+        self._require_admin_token(point, admin_token)
+        normalized = tuple(link.strip() for link in important_links if link.strip())
+        for link in normalized:
+            if not link.startswith(("http://", "https://")):
+                raise ValueError("important_links must start with http:// or https://")
+            if not 1 <= len(link) <= 500:
+                raise ValueError("important_links must be between 1 and 500 characters")
+        if len(set(normalized)) != len(normalized):
+            raise ValueError("important_links must be unique")
+        return self._repository.update_help_point(replace(point, important_links=normalized))
+
+    def update_help_point_locations(
+        self,
+        point: HelpPoint,
+        admin_token: str,
+        locations: tuple[NewHelpPointLocation, ...],
+    ) -> HelpPoint:
+        self._require_admin_token(point, admin_token)
+        if not locations:
+            raise ValueError("at least one location is required")
+        for location in locations:
+            validate_required(location.address, "address", 240)
+            validate_required(location.city, "city", 120)
+            validate_required(location.department, "department", 120)
+            if not -90 <= location.latitude <= 90:
+                raise ValueError("latitude must be between -90 and 90")
+            if not -180 <= location.longitude <= 180:
+                raise ValueError("longitude must be between -180 and 180")
+        updated = tuple(
+            HelpPointLocation(
+                id=uuid4(),
+                address=location.address.strip(),
+                city=location.city.strip(),
+                department=location.department.strip(),
+                latitude=location.latitude,
+                longitude=location.longitude,
+            )
+            for location in locations
+        )
+        return self._repository.update_help_point(replace(point, locations=updated))
 
     def list_active_categories(self) -> Mapping[str, UUID]:
         return self._repository.list_active_categories()
@@ -246,13 +303,9 @@ class HelpPointService:
             id=point.id,
             name=point.name,
             description=point.description,
-            city=point.city,
-            department=point.department,
-            address=point.address,
             affected_city=point.affected_city,
             affected_department=point.affected_department,
-            latitude=point.latitude,
-            longitude=point.longitude,
+            locations=point.locations,
             coordinator_name=point.coordinator_name,
             coordinator_contact=point.coordinator_contact,
             active=point.active,

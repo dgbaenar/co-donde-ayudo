@@ -6,9 +6,17 @@ from uuid import UUID, uuid4
 
 from sqlalchemy import select
 
-from backend.domain.models import Commitment, HelpPoint, HelpPointCategory, Need, NeedStatus
+from backend.domain.models import (
+    Commitment,
+    HelpPoint,
+    HelpPointCategory,
+    HelpPointLocation,
+    Need,
+    NeedStatus,
+)
 from backend.infrastructure.postgres.orm_models import (
     CommitmentRow,
+    HelpPointLocationRow,
     HelpPointRow,
     NeedCategoryRow,
     NeedRow,
@@ -44,6 +52,29 @@ class PostgresHelpPointRepository:
                 for category_id, need in desired.items():
                     if category_id not in existing:
                         row.needs.append(NeedRow(id=need.id, category_id=category_id, estado=need.status.value))
+                existing_locations = {location.id: location for location in row.locations}
+                desired_locations = {location.id: location for location in point.locations}
+                for location_id, location_row in existing_locations.items():
+                    if location_id not in desired_locations:
+                        session.delete(location_row)
+                    else:
+                        location_row.direccion = desired_locations[location_id].address
+                        location_row.ciudad = desired_locations[location_id].city
+                        location_row.departamento = desired_locations[location_id].department
+                        location_row.latitude = desired_locations[location_id].latitude
+                        location_row.longitude = desired_locations[location_id].longitude
+                for location_id, location in desired_locations.items():
+                    if location_id not in existing_locations:
+                        row.locations.append(
+                            HelpPointLocationRow(
+                                id=location.id,
+                                direccion=location.address,
+                                ciudad=location.city,
+                                departamento=location.department,
+                                latitude=location.latitude,
+                                longitude=location.longitude,
+                            )
+                        )
                 session.flush()
                 return replace(point, updated_at=row.updated_at)
 
@@ -116,22 +147,28 @@ class PostgresHelpPointRepository:
         row = HelpPointRow(id=point.id)
         PostgresHelpPointRepository._apply_point(row, point)
         row.needs = [NeedRow(id=need.id, category_id=need.category_id, estado=need.status.value) for need in point.needs]
+        row.locations = [
+            HelpPointLocationRow(
+                id=location.id,
+                direccion=location.address,
+                ciudad=location.city,
+                departamento=location.department,
+                latitude=location.latitude,
+                longitude=location.longitude,
+            )
+            for location in point.locations
+        ]
         return row
 
     @staticmethod
     def _apply_point(row: HelpPointRow, point: HelpPoint) -> None:
         row.nombre = point.name
         row.descripcion = point.description
-        row.ciudad = point.city
-        row.departamento = point.department
-        row.direccion = point.address
         row.ciudad_afectada = point.affected_city
         row.departamento_afectado = point.affected_department
         row.zonas_adicionales = point.additional_affected_areas
         row.enlaces_importantes = list(point.important_links)
         row.categoria = point.category.value
-        row.latitude = point.latitude
-        row.longitude = point.longitude
         row.nombre_coordinador = point.coordinator_name
         row.contacto_coordinador = point.coordinator_contact
         row.admin_token = point.admin_token
@@ -143,21 +180,27 @@ class PostgresHelpPointRepository:
             id=row.id,
             name=row.nombre,
             description=row.descripcion,
-            city=row.ciudad,
-            department=row.departamento,
-            address=row.direccion,
             affected_city=row.ciudad_afectada,
             affected_department=row.departamento_afectado,
             additional_affected_areas=row.zonas_adicionales,
             important_links=tuple(row.enlaces_importantes),
             category=HelpPointCategory(row.categoria),
-            latitude=row.latitude,
-            longitude=row.longitude,
             coordinator_name=row.nombre_coordinador,
             coordinator_contact=row.contacto_coordinador,
             admin_token=row.admin_token,
             active=row.activo,
             updated_at=row.updated_at,
+            locations=tuple(
+                HelpPointLocation(
+                    id=location.id,
+                    address=location.direccion,
+                    city=location.ciudad,
+                    department=location.departamento,
+                    latitude=location.latitude,
+                    longitude=location.longitude,
+                )
+                for location in row.locations
+            ),
             needs=tuple(
                 Need(
                     id=need.id,

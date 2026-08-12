@@ -1,9 +1,16 @@
 from __future__ import annotations
 
+from dataclasses import replace
 import unittest
 from uuid import uuid4
 
-from backend.domain.models import HelpPointCategory, Need, NeedStatus, PublicHelpPoint
+from backend.domain.models import (
+    HelpPointCategory,
+    HelpPointLocation,
+    Need,
+    NeedStatus,
+    PublicHelpPoint,
+)
 from frontend.components import help_point_map
 
 
@@ -64,13 +71,18 @@ class HelpPointMapTests(unittest.TestCase):
             id=uuid4(),
             name=name,
             description="Se requiere apoyo.",
-            city="Cali & alrededores",
-            department="Valle <del> Cauca",
-            address="Calle 5 <principal>",
+            locations=(
+                HelpPointLocation(
+                    id=uuid4(),
+                    address="Calle 5 <principal>",
+                    city="Cali & alrededores",
+                    department="Valle <del> Cauca",
+                    latitude=3.4516,
+                    longitude=-76.5320,
+                ),
+            ),
             affected_city=affected_city,
             affected_department="Valle <afectado> Cauca",
-            latitude=3.4516,
-            longitude=-76.5320,
             coordinator_name="Ana",
             coordinator_contact="Contacto",
             active=active,
@@ -86,7 +98,7 @@ class HelpPointMapTests(unittest.TestCase):
     def test_popup_shows_whole_department_when_affected_city_is_none(self) -> None:
         point = self.point(affected_city=None)
 
-        popup = help_point_map.build_popup_html(point, {})
+        popup = help_point_map.build_popup_html(point, {}, point.locations[0])
 
         self.assertIn("Todo el departamento de Valle &lt;afectado&gt; Cauca", popup)
         self.assertNotIn("None", popup)
@@ -97,6 +109,7 @@ class HelpPointMapTests(unittest.TestCase):
         popup = help_point_map.build_popup_html(
             point,
             {"<b>Agua</b>": self.category_id},
+            point.locations[0],
         )
 
         self.assertNotIn("<script>", popup)
@@ -114,7 +127,7 @@ class HelpPointMapTests(unittest.TestCase):
         self.assertIn("🔴 &lt;b&gt;Agua&lt;/b&gt;", popup)
         self.assertIn(f'href="/puntos/{point.id}"', popup)
 
-    def test_renders_colombia_map_with_one_popup_marker_per_active_point(self) -> None:
+    def test_renders_colombia_map_with_one_marker_per_location(self) -> None:
         fake_ui = RecordingUi()
         original_ui = help_point_map.ui
         help_point_map.ui = fake_ui
@@ -138,6 +151,36 @@ class HelpPointMapTests(unittest.TestCase):
         self.assertEqual(map_element.markers[0].method_calls, [])
         map_element.handlers["init"]()
         self.assertEqual(map_element.markers[0].method_calls[0][0], "bindPopup")
+
+    def test_renders_one_marker_per_location_for_a_multi_location_point(self) -> None:
+        fake_ui = RecordingUi()
+        original_ui = help_point_map.ui
+        help_point_map.ui = fake_ui
+        multi = self.point()
+        second = HelpPointLocation(
+            id=uuid4(),
+            address="Carrera 9 # 3-12",
+            city="Palmira",
+            department="Valle del Cauca",
+            latitude=3.5392,
+            longitude=-76.3036,
+        )
+        point = replace(multi, locations=(multi.locations[0], second))
+        try:
+            map_element = help_point_map.render_help_point_map(
+                (point,),
+                {"Agua": self.category_id},
+            )
+        finally:
+            help_point_map.ui = original_ui
+
+        self.assertEqual(
+            [marker.latlng for marker in map_element.markers],
+            [(3.4516, -76.532), (3.5392, -76.3036)],
+        )
+        map_element.handlers["init"]()
+        self.assertEqual(map_element.markers[0].method_calls[0][0], "bindPopup")
+        self.assertEqual(map_element.markers[1].method_calls[0][0], "bindPopup")
 
 
 if __name__ == "__main__":

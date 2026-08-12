@@ -103,6 +103,8 @@ class RuntimeTests(unittest.TestCase):
             change_need_status=service.change_need_status,
             update_help_point_info=service.update_help_point_info,
             update_help_point_category=service.update_help_point_category,
+            update_help_point_links=service.update_help_point_links,
+            update_help_point_locations=service.update_help_point_locations,
             deactivate_help_point=service.deactivate_help_point,
             authorize_coordinator_access=access_service.authorize,
             get_public_help_point=service.get_public_help_point,
