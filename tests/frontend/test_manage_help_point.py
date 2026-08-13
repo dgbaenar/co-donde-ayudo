@@ -89,6 +89,7 @@ class RecordingUi:
     def input(self, *args, **kwargs): return self._record("input", *args, **kwargs)
     def select(self, *args, **kwargs): return self._record("select", *args, **kwargs)
     def button(self, *args, **kwargs): return self._record("button", *args, **kwargs)
+    def icon(self, *args, **kwargs): return self._record("icon", *args, **kwargs)
     def notify(self, *args, **kwargs): return self._record("notify", *args, **kwargs)
     def dialog(self, *args, **kwargs):
         element = RecordingDialog(self, *args, **kwargs)
@@ -185,6 +186,47 @@ class ManageHelpPointTests(unittest.TestCase):
             calls,
             [(self.point, self.token, self.need.id, status) for status in NeedStatus],
         )
+
+    def test_page_background_and_selects_match_the_modern_design_system(self) -> None:
+        fake_ui = RecordingUi()
+        original_ui = manage_help_point.ui
+        manage_help_point.ui = fake_ui
+        try:
+            manage_help_point.render_manage_help_point(
+                self.point,
+                self.token,
+                {"Agua": self.need.category_id},
+                lambda *_args: self.point,
+                lambda *_args: self.point,
+                lambda *_args: self.point,
+                lambda *_args: self.point,
+                lambda *_args: self.point,
+                lambda *_args: self.point,
+                lambda *_args: self.point,
+                lambda *_args: self.point,
+                lambda *_args: self.point,
+                lambda *_args: None,
+            )
+        finally:
+            manage_help_point.ui = original_ui
+
+        with self.subTest("page background matches the rest of the app"):
+            self.assertTrue(
+                any(
+                    element.kind == "column"
+                    and "min-h-screen" in element.classes_value
+                    and "bg-slate-50" in element.classes_value
+                    for element in fake_ui.elements
+                )
+            )
+        selects = [element for element in fake_ui.elements if element.kind == "select"]
+        self.assertTrue(selects)
+        with self.subTest("selects use the filled rounded style, not outlined dense"):
+            for select in selects:
+                with self.subTest(select=select.kwargs.get("label")):
+                    self.assertIn("filled", select.props_value)
+                    self.assertIn("rounded", select.props_value)
+                    self.assertNotIn("dense", select.props_value)
 
     def test_deactivate_delegates_token(self) -> None:
         calls = []
@@ -630,7 +672,8 @@ class ManageHelpPointLinksEditingTests(unittest.TestCase):
             for element in self.fake_ui.elements
             if element.kind == "button"
             and element.args == ("Quitar",)
-            and element.props_value == "flat"
+            and element.props_value == "unelevated color=red-9"
+            and element.classes_value == "min-h-[44px] shrink-0 rounded-2xl"
         ]
         self.assertEqual(len(remove_buttons), 3)
         remove_buttons[0].kwargs["on_click"]()
@@ -990,7 +1033,7 @@ class ManageHelpPointAffectedAreasEditingTests(unittest.TestCase):
             for element in self.fake_ui.elements
             if element.kind == "button"
             and element.args == ("Quitar",)
-            and element.props_value == "flat color=red-9"
+            and element.props_value == "unelevated color=red-9"
         ]
         remove_buttons[-1].kwargs["on_click"]()
 
@@ -1053,6 +1096,8 @@ class ManageHelpPointResponsivePresentationTests(unittest.TestCase):
                 HelpPointCategory.COMMUNITY_FOOD: "Alimentación Comunitaria",
                 HelpPointCategory.VOLUNTEERING: "Voluntariado",
                 HelpPointCategory.BLOOD_DONATION: "Donación de sangre",
+                HelpPointCategory.MONEY_DONATION: "Donación de dinero",
+                HelpPointCategory.PET_ASSISTANCE: "Ayuda para mascotas",
             },
         )
 
@@ -1111,7 +1156,7 @@ class ManageHelpPointResponsivePresentationTests(unittest.TestCase):
                 element
                 for element in fake_ui.elements
                 if element.kind == "select"
-                and element.kwargs.get("label") == "Categoría del punto"
+                and element.kwargs.get("label") == "Selecciona una categoría"
             )
             self.assertEqual(
                 category_select.kwargs["value"], HelpPointCategory.DONATION_COLLECTION
@@ -1193,12 +1238,14 @@ class ManageHelpPointResponsivePresentationTests(unittest.TestCase):
             "Desactivar punto",
         ):
             self.assertIn("min-h-[44px]", buttons[text].classes_value)
+            with self.subTest(button=text):
+                self.assertIn("rounded-2xl", buttons[text].classes_value)
         for text in ("Guardar información", "Guardar estado"):
             self.assertIn("unelevated", buttons[text].props_value)
-            self.assertIn("color=primary", buttons[text].props_value)
+            self.assertIn("color=secondary", buttons[text].props_value)
             self.assertNotIn("color=green-9", buttons[text].props_value)
         self.assertIn("unelevated", buttons["Agregar necesidad"].props_value)
-        self.assertIn("color=primary", buttons["Agregar necesidad"].props_value)
+        self.assertIn("color=secondary", buttons["Agregar necesidad"].props_value)
         self.assertNotIn("color=green-9", buttons["Agregar necesidad"].props_value)
         self.assertIn("unelevated", buttons["Quitar"].props_value)
         self.assertIn("color=red-9", buttons["Quitar"].props_value)
@@ -1207,7 +1254,7 @@ class ManageHelpPointResponsivePresentationTests(unittest.TestCase):
             element
             for element in fake_ui.elements
             if element.kind == "select"
-            and element.kwargs.get("label") == "Agregar necesidad"
+            and element.kwargs.get("label") == "Categoría de la necesidad"
         )
         for current_selector in (selector, category_selector):
             self.assertIn("behavior=menu", current_selector.props_value)
@@ -1254,7 +1301,7 @@ class ManageHelpPointResponsivePresentationTests(unittest.TestCase):
                 for element in fake_ui.elements
                 if element.kind == "button"
                 and element.args == ("Quitar",)
-                and "unelevated" in element.props_value
+                and "sm:flex-1" in element.classes_value
             )
             deactivate_launch = next(
                 element

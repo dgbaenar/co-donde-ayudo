@@ -16,12 +16,23 @@ from backend.domain.models import (
     NeedStatus,
     NewHelpPointLocation,
 )
+from frontend.components.help_point_map import category_pin_color
 from frontend.components.location_picker import render_location_picker
 from frontend.pages.create_help_point import GeocodeAddress
 
 logger = logging.getLogger(__name__)
 
 _LOW_CONFIDENCE_ADDRESS_MESSAGE = "Toca el mapa para ubicar el punto correctamente."
+_SECTION_HEADING_CLASSES = "text-lg font-semibold text-slate-900"
+
+
+def render_section_heading(icon: str, icon_classes: str, text: str) -> None:
+    """Render a section heading with a small colored icon for visual rhythm."""
+    with ui.row().classes("items-center gap-2"):
+        ui.icon(icon).classes(f"{icon_classes} shrink-0").props("aria-hidden=true")
+        ui.label(text).classes(_SECTION_HEADING_CLASSES).props(
+            "role=heading aria-level=2"
+        )
 
 
 AddNeedHandler = Callable[[HelpPoint, str, UUID], HelpPoint]
@@ -165,7 +176,9 @@ def render_manage_help_point(
     geocode_address: GeocodeAddress,
 ) -> None:
     """Render administration controls using injected backend operations only."""
-    with ui.column().classes("w-full max-w-md md:max-w-2xl mx-auto gap-4 p-4"):
+    with ui.column().classes("w-full min-h-screen bg-slate-50"), ui.column().classes(
+        "w-full max-w-md md:max-w-2xl mx-auto gap-4 p-4"
+    ):
         ui.link("Volver al inicio", "/").classes(
             "text-sm font-medium text-slate-700 min-h-[44px] flex items-center"
         )
@@ -195,9 +208,9 @@ def render_manage_help_point(
                 with ui.card().classes(
                     "w-full gap-3 rounded-2xl border border-slate-200 bg-white p-4"
                 ):
-                    ui.label("Información pública").classes(
-                        "text-lg font-semibold text-slate-900"
-                    ).props("role=heading aria-level=2")
+                    render_section_heading(
+                        "info", "text-[#003893]", "Información pública"
+                    )
                     name = ui.input(
                         "Nombre del punto", value=point.name
                     ).classes("w-full").props("maxlength=120 counter")
@@ -230,21 +243,23 @@ def render_manage_help_point(
                             )
                         ),
                     ).classes(
-                        "w-full min-h-[44px]"
-                    ).props("unelevated color=primary")
+                        "w-full min-h-[44px] rounded-2xl"
+                    ).props("unelevated color=secondary")
 
                 with ui.card().classes(
                     "w-full gap-3 rounded-2xl border border-slate-200 bg-white p-4"
                 ):
-                    ui.label("Categoría del punto").classes(
-                        "text-lg font-semibold text-slate-900"
-                    ).props("role=heading aria-level=2")
+                    render_section_heading(
+                        "category",
+                        f"text-[{category_pin_color(point.category)}]",
+                        "Categoría del punto",
+                    )
                     category_select = ui.select(
                         options=category_options(),
-                        label="Categoría del punto",
+                        label="Selecciona una categoría",
                         value=point.category,
                     ).classes("w-full").props(
-                        "outlined dense behavior=menu color=blue-grey-9 "
+                        "filled rounded behavior=menu color=blue-grey-9 "
                         "transition-show=none transition-hide=none"
                     )
                     ui.button(
@@ -258,15 +273,15 @@ def render_manage_help_point(
                             )
                         ),
                     ).classes(
-                        "w-full min-h-[44px]"
-                    ).props("unelevated color=primary")
+                        "w-full min-h-[44px] rounded-2xl"
+                    ).props("unelevated color=secondary")
 
                 with ui.card().classes(
                     "w-full gap-3 rounded-2xl border border-slate-200 bg-white p-4"
                 ):
-                    ui.label("Enlaces importantes").classes(
-                        "text-lg font-semibold text-slate-900"
-                    ).props("role=heading aria-level=2")
+                    render_section_heading(
+                        "link", "text-slate-500", "Enlaces importantes"
+                    )
 
                     def remove_link(url: str, row) -> None:
                         if url in important_links:
@@ -296,7 +311,9 @@ def render_manage_help_point(
                                     on_click=lambda url=url, row=link_row: remove_link(
                                         url, row
                                     ),
-                                ).classes("min-h-[44px] shrink-0").props("flat")
+                                ).classes(
+                                    "min-h-[44px] shrink-0 rounded-2xl"
+                                ).props("unelevated color=red-9")
 
                     links_container = ui.column().classes("w-full gap-2")
                     for url in important_links:
@@ -312,15 +329,17 @@ def render_manage_help_point(
                                     on_click=lambda url=url, row=link_row: remove_link(
                                         url, row
                                     ),
-                                ).classes("min-h-[44px] shrink-0").props("flat")
+                                ).classes(
+                                    "min-h-[44px] shrink-0 rounded-2xl"
+                                ).props("unelevated color=red-9")
 
                     with ui.row().classes("w-full gap-2 items-end flex-nowrap"):
                         link_input = ui.input("Enlace importante (URL)").classes(
                             "flex-1 min-w-0"
                         )
                         ui.button("Agregar enlace", on_click=add_link).classes(
-                            "min-h-[44px] shrink-0"
-                        )
+                            "min-h-[44px] shrink-0 rounded-2xl"
+                        ).props("unelevated color=secondary")
 
                     ui.button(
                         "Guardar enlaces",
@@ -332,16 +351,16 @@ def render_manage_help_point(
                                 update_help_point_links,
                             )
                         ),
-                    ).classes("w-full min-h-[44px]").props(
-                        "unelevated color=primary"
+                    ).classes("w-full min-h-[44px] rounded-2xl").props(
+                        "unelevated color=secondary"
                     )
 
                 with ui.card().classes(
                     "w-full gap-3 rounded-2xl border border-slate-200 bg-white p-4"
                 ):
-                    ui.label("Ubicaciones").classes(
-                        "text-lg font-semibold text-slate-900"
-                    ).props("role=heading aria-level=2")
+                    render_section_heading(
+                        "location_on", "text-[#003893]", "Ubicaciones"
+                    )
 
                     locations_container = ui.column().classes("w-full gap-2")
                     location_blocks: list[dict] = []
@@ -410,7 +429,9 @@ def render_manage_help_point(
                                 address_input.on("keydown.enter", search_address)
                                 ui.button(
                                     "Buscar en el mapa", on_click=search_address
-                                ).classes("w-full min-h-[44px]")
+                                ).classes("w-full min-h-[44px] rounded-2xl").props(
+                                    "unelevated color=secondary"
+                                )
 
                                 block = {
                                     "card": block_card,
@@ -427,8 +448,8 @@ def render_manage_help_point(
 
                                 ui.button(
                                     "Quitar", on_click=remove_location
-                                ).classes("min-h-[44px] w-full").props(
-                                    "flat color=red-9"
+                                ).classes("min-h-[44px] w-full rounded-2xl").props(
+                                    "unelevated color=red-9"
                                 )
 
                                 return block
@@ -439,7 +460,9 @@ def render_manage_help_point(
                     ui.button(
                         "Agregar ubicación",
                         on_click=lambda: render_location_block(),
-                    ).classes("w-full min-h-[44px]").props("outline")
+                    ).classes(
+                        "w-full min-h-[44px] rounded-2xl"
+                    ).props("unelevated color=secondary")
 
                     def save_locations() -> None:
                         new_locations = []
@@ -478,16 +501,16 @@ def render_manage_help_point(
 
                     ui.button(
                         "Guardar ubicaciones", on_click=save_locations
-                    ).classes("w-full min-h-[44px]").props(
-                        "unelevated color=primary"
+                    ).classes("w-full min-h-[44px] rounded-2xl").props(
+                        "unelevated color=secondary"
                     )
 
                 with ui.card().classes(
                     "w-full gap-3 rounded-2xl border border-slate-200 bg-white p-4"
                 ):
-                    ui.label("Zonas afectadas").classes(
-                        "text-lg font-semibold text-slate-900"
-                    ).props("role=heading aria-level=2")
+                    render_section_heading(
+                        "warning", "text-amber-600", "Zonas afectadas"
+                    )
 
                     areas_container = ui.column().classes("w-full gap-2")
                     area_blocks: list[dict] = []
@@ -520,8 +543,8 @@ def render_manage_help_point(
 
                                 ui.button(
                                     "Quitar", on_click=remove_area
-                                ).classes("min-h-[44px] w-full").props(
-                                    "flat color=red-9"
+                                ).classes("min-h-[44px] w-full rounded-2xl").props(
+                                    "unelevated color=red-9"
                                 )
 
                                 return area
@@ -532,7 +555,9 @@ def render_manage_help_point(
                     ui.button(
                         "Agregar zona afectada",
                         on_click=lambda: render_area_block(),
-                    ).classes("w-full min-h-[44px]").props("outline")
+                    ).classes(
+                        "w-full min-h-[44px] rounded-2xl"
+                    ).props("unelevated color=secondary")
 
                     def save_affected_areas() -> None:
                         new_areas = []
@@ -566,27 +591,28 @@ def render_manage_help_point(
 
                     ui.button(
                         "Guardar zonas afectadas", on_click=save_affected_areas
-                    ).classes("w-full min-h-[44px]").props(
-                        "unelevated color=primary"
+                    ).classes("w-full min-h-[44px] rounded-2xl").props(
+                        "unelevated color=secondary"
                     )
 
                 with ui.card().classes(
                     "w-full gap-3 rounded-2xl border border-slate-200 bg-white p-4"
                 ):
-                    ui.label("Necesidades").classes(
-                        "text-lg font-semibold text-slate-900"
-                    ).props("role=heading aria-level=2")
+                    render_section_heading(
+                        "checklist", "text-emerald-600", "Necesidades"
+                    )
                     with ui.row().classes(
-                        "w-full items-start gap-2 rounded-lg border "
-                        "border-slate-200 bg-slate-50 p-2"
+                        "w-full items-start gap-2 rounded-xl bg-blue-50 p-3"
                     ):
-                        ui.label("ℹ️").classes("text-xs leading-relaxed")
+                        ui.icon("info").classes(
+                            "text-blue-600 text-base shrink-0"
+                        ).props("aria-hidden=true")
                         ui.label(
                             "Quien confirma ayuda solo activa el estado "
                             "amarillo. Solo quien tenga este enlace de "
                             "administración puede marcar una necesidad como "
                             "cubierto."
-                        ).classes("text-xs leading-relaxed text-slate-600")
+                        ).classes("text-xs leading-relaxed text-blue-900")
                     for need in point.needs:
                         with ui.card().classes(
                             "w-full gap-2 rounded-xl border border-slate-200 p-3"
@@ -620,7 +646,7 @@ def render_manage_help_point(
                                 label="Estado",
                                 value=need.status,
                             ).classes("w-full").props(
-                                "outlined dense behavior=menu color=blue-grey-9"
+                                "filled rounded behavior=menu color=blue-grey-9"
                             )
                             with ui.row().classes(
                                 "w-full flex-col sm:flex-row gap-2"
@@ -637,8 +663,8 @@ def render_manage_help_point(
                                         )
                                     ),
                                 ).classes(
-                                    "w-full sm:flex-1 min-h-[44px]"
-                                ).props("unelevated color=primary")
+                                    "w-full sm:flex-1 min-h-[44px] rounded-2xl"
+                                ).props("unelevated color=secondary")
 
                                 with ui.dialog() as remove_dialog, ui.card().classes(
                                     "w-full max-w-sm gap-3 p-4"
@@ -655,8 +681,8 @@ def render_manage_help_point(
                                         ui.button(
                                             "Cancelar", on_click=remove_dialog.close
                                         ).classes(
-                                            "w-full sm:flex-1 min-h-[44px]"
-                                        ).props("outline color=blue-grey-7")
+                                            "w-full sm:flex-1 min-h-[44px] rounded-2xl"
+                                        ).props("unelevated color=blue-grey-7")
                                         ui.button(
                                             "Sí, quitar necesidad",
                                             on_click=lambda need_id=need.id, dialog=remove_dialog: (
@@ -671,25 +697,25 @@ def render_manage_help_point(
                                                 ),
                                             ),
                                         ).classes(
-                                            "w-full sm:flex-1 min-h-[44px]"
+                                            "w-full sm:flex-1 min-h-[44px] rounded-2xl"
                                         ).props("unelevated color=red-9")
 
                                 ui.button(
                                     "Quitar", on_click=remove_dialog.open
                                 ).classes(
-                                    "w-full sm:flex-1 min-h-[44px]"
+                                    "w-full sm:flex-1 min-h-[44px] rounded-2xl"
                                 ).props("unelevated color=red-9")
 
                 with ui.card().classes(
                     "w-full gap-3 rounded-2xl border border-slate-200 bg-white p-4"
                 ):
-                    ui.label("Agregar necesidad").classes(
-                        "text-lg font-semibold text-slate-900"
-                    ).props("role=heading aria-level=2")
+                    render_section_heading(
+                        "playlist_add", "text-emerald-600", "Agregar necesidad"
+                    )
                     category = ui.select(
-                        options=list(categories), label="Agregar necesidad"
+                        options=list(categories), label="Categoría de la necesidad"
                     ).classes("w-full").props(
-                        'outlined dense behavior=menu color=blue-grey-9 '
+                        'filled rounded behavior=menu color=blue-grey-9 '
                         'popup-content-class=bounded-select-menu '
                         'popup-content-style="max-height: 40vh !important; overflow-y: auto"'
                     )
@@ -705,15 +731,15 @@ def render_manage_help_point(
                             )
                         ),
                     ).classes(
-                        "w-full min-h-[44px]"
-                    ).props("unelevated color=primary")
+                        "w-full min-h-[44px] rounded-2xl"
+                    ).props("unelevated color=secondary")
 
                 with ui.card().classes(
                     "w-full gap-3 rounded-2xl border border-red-200 bg-white p-4"
                 ):
-                    ui.label("Zona de peligro").classes(
-                        "text-lg font-semibold text-slate-900"
-                    ).props("role=heading aria-level=2")
+                    render_section_heading(
+                        "warning", "text-red-600", "Zona de peligro"
+                    )
                     ui.label(
                         "Desactivar oculta el punto del mapa público."
                     ).classes("text-sm text-slate-600")
@@ -733,8 +759,8 @@ def render_manage_help_point(
                             ui.button(
                                 "Cancelar", on_click=deactivate_dialog.close
                             ).classes(
-                                "w-full sm:flex-1 min-h-[44px]"
-                            ).props("outline color=blue-grey-7")
+                                "w-full sm:flex-1 min-h-[44px] rounded-2xl"
+                            ).props("unelevated color=blue-grey-7")
                             ui.button(
                                 "Sí, desactivar punto",
                                 on_click=lambda dialog=deactivate_dialog: (
@@ -748,12 +774,12 @@ def render_manage_help_point(
                                     ),
                                 ),
                             ).classes(
-                                "w-full sm:flex-1 min-h-[44px]"
+                                "w-full sm:flex-1 min-h-[44px] rounded-2xl"
                             ).props("unelevated color=red-9")
 
                     ui.button(
                         "Desactivar punto", on_click=deactivate_dialog.open
-                    ).classes("w-full min-h-[44px]").props(
+                    ).classes("w-full min-h-[44px] rounded-2xl").props(
                         "unelevated color=red-9"
                     )
 

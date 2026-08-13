@@ -11,11 +11,12 @@ from nicegui import ui
 
 from backend.domain.models import Need, NeedStatus, PublicHelpPoint
 from frontend.components.help_point_map import (
+    category_badge_classes,
+    category_pin_color,
     describe_affected_areas,
     format_relative_time,
     format_short_date,
     render_help_point_map,
-    status_line,
 )
 
 logger = logging.getLogger(__name__)
@@ -24,11 +25,36 @@ logger = logging.getLogger(__name__)
 GetPublicHelpPoint = Callable[[UUID], PublicHelpPoint | None]
 CreateCommitmentHandler = Callable[[UUID, str, str | None], Need]
 _NOT_FOUND_MESSAGE = "No fue posible encontrar este punto de ayuda."
-_STATUS_ROW_CLASSES = {
-    NeedStatus.NEEDS_HELP: "border-l-red-500 bg-red-50/50",
-    NeedStatus.HELP_ON_THE_WAY: "border-l-amber-500 bg-amber-50/50",
-    NeedStatus.COVERED: "border-l-emerald-500 bg-emerald-50/50",
+_STATUS_BORDER_CLASSES = {
+    NeedStatus.NEEDS_HELP: "border-l-red-500",
+    NeedStatus.HELP_ON_THE_WAY: "border-l-amber-500",
+    NeedStatus.COVERED: "border-l-emerald-500",
 }
+_STATUS_BADGE_BG = {
+    NeedStatus.NEEDS_HELP: "bg-red-600",
+    NeedStatus.HELP_ON_THE_WAY: "bg-amber-600",
+    NeedStatus.COVERED: "bg-emerald-600",
+}
+_STATUS_BADGE_LABEL = {
+    NeedStatus.NEEDS_HELP: "Se necesita",
+    NeedStatus.HELP_ON_THE_WAY: "En camino",
+    NeedStatus.COVERED: "Cubierto",
+}
+_STATUS_LEGEND_LABEL = {
+    NeedStatus.NEEDS_HELP: "Se necesita ayuda",
+    NeedStatus.HELP_ON_THE_WAY: "Ayuda en camino",
+    NeedStatus.COVERED: "Cubierto — no enviar más",
+}
+
+
+def status_badge_classes(status: NeedStatus) -> str:
+    """Return the solid-color pill classes for a need's status badge."""
+    return (
+        f"text-[10px] font-bold uppercase tracking-wide text-white "
+        f"{_STATUS_BADGE_BG[status]} rounded-full px-2.5 py-1 shrink-0"
+    )
+
+
 _THANKS_MESSAGE = (
     "Gracias. Las personas que coordinan este punto podrán ver que hay "
     "ayuda en camino."
@@ -102,7 +128,9 @@ def render_commitment_control(
             ui.label(_THANKS_MESSAGE).classes("text-slate-700")
             ui.button(
                 "Cerrar", on_click=commit_dialog.close
-            ).classes("w-full min-h-[44px]").props("unelevated color=primary")
+            ).classes("w-full min-h-[44px] rounded-2xl").props(
+                "unelevated color=secondary"
+            )
         on_committed(updated_need)
 
     def build_dialog() -> tuple[ui.dialog, ui.card, ui.input, ui.textarea]:
@@ -120,20 +148,20 @@ def render_commitment_control(
             with ui.row().classes("w-full flex-col sm:flex-row gap-2"):
                 ui.button(
                     "Cancelar", on_click=commit_dialog.close
-                ).classes("w-full sm:flex-1 min-h-[44px]").props(
-                    "outline color=blue-grey-7"
+                ).classes("w-full sm:flex-1 min-h-[44px] rounded-2xl").props(
+                    "unelevated color=blue-grey-7"
                 )
                 ui.button("Confirmar", on_click=lambda: confirm(commit_card, commit_dialog, name_input, note_input)).classes(
-                    "w-full sm:flex-1 min-h-[44px]"
-                ).props("unelevated color=primary")
+                    "w-full sm:flex-1 min-h-[44px] rounded-2xl"
+                ).props("unelevated color=secondary")
 
         return commit_dialog, commit_card, name_input, note_input
 
     commit_dialog, _, _, _ = build_dialog()
 
     ui.button("Voy a ayudar", on_click=commit_dialog.open).classes(
-        "shrink-0 min-h-[44px] px-3"
-    ).props("unelevated color=primary")
+        "shrink-0 min-h-[44px] px-3 rounded-2xl"
+    ).props("unelevated color=secondary")
 
 
 def render_help_point_detail(
@@ -153,8 +181,12 @@ def render_help_point_detail(
             )
 
             with ui.column().classes(
-                "w-full gap-2 rounded-2xl border border-slate-200 bg-white p-4 md:p-6"
+                "w-full gap-2 rounded-2xl border border-slate-200 bg-white p-4 md:p-6 "
+                f"border-l-4 border-[{category_pin_color(point.category)}]"
             ):
+                ui.label(point.category.value).classes(
+                    category_badge_classes(point.category)
+                )
                 ui.label(point.name).classes(
                     "text-2xl md:text-3xl font-bold text-slate-900"
                 ).props("role=heading aria-level=1")
@@ -213,60 +245,64 @@ def render_help_point_detail(
                 ui.label("Necesidades actuales").classes(
                     "text-lg font-semibold text-slate-900"
                 ).props("role=heading aria-level=2")
-                with ui.row().classes("w-full flex-wrap gap-x-3 gap-y-1"):
-                    ui.label("🔴 Se necesita ayuda").classes(
-                        "text-xs text-slate-500"
-                    )
-                    ui.label("🟡 Ya hay alguien en camino").classes(
-                        "text-xs text-slate-500"
-                    )
-                    ui.label("🟢 Cubierto — no enviar más").classes(
-                        "text-xs text-slate-500"
-                    )
+                with ui.row().classes("w-full flex-wrap gap-2"):
+                    for legend_status in (
+                        NeedStatus.NEEDS_HELP,
+                        NeedStatus.HELP_ON_THE_WAY,
+                        NeedStatus.COVERED,
+                    ):
+                        ui.label(_STATUS_LEGEND_LABEL[legend_status]).classes(
+                            status_badge_classes(legend_status)
+                        )
                 with ui.row().classes(
-                    "w-full items-start gap-2 rounded-lg border "
-                    "border-slate-200 bg-slate-50 p-2"
+                    "w-full items-start gap-2 rounded-xl bg-blue-50 p-3"
                 ):
-                    ui.label("ℹ️").classes("text-xs leading-relaxed")
+                    ui.icon("info").classes(
+                        "text-blue-600 text-base shrink-0"
+                    ).props("aria-hidden=true")
                     ui.label(
                         "El amarillo se activa automáticamente al confirmar "
                         "ayuda. Solo quien coordina este punto puede marcarlo "
                         "como cubierto (verde)."
-                    ).classes("text-xs leading-relaxed text-slate-600")
+                    ).classes("text-xs leading-relaxed text-blue-900")
                 with ui.row().classes(
-                    "w-full items-start gap-2 rounded-lg border "
-                    "border-slate-200 bg-slate-50 p-2"
+                    "w-full items-start gap-2 rounded-xl bg-amber-50 p-3"
                 ):
-                    ui.label("🙏").classes("text-xs leading-relaxed")
+                    ui.icon("volunteer_activism").classes(
+                        "text-amber-600 text-base shrink-0"
+                    ).props("aria-hidden=true")
                     ui.label(
                         "Marca \"Voy a ayudar\" solo si de verdad vas a "
                         "cumplir con esa necesidad. Si no vas a poder, "
                         "por favor no la marques."
-                    ).classes("text-xs leading-relaxed text-slate-600")
+                    ).classes("text-xs leading-relaxed text-amber-900")
                 for need in point.needs:
                     with ui.row().classes("w-full flex-wrap items-center gap-3"):
-                        status_slot = ui.row().classes("flex-1 min-w-0")
+                        status_slot = ui.column().classes("flex-1 min-w-0")
 
                         def render_status(
-                            current_need: Need, slot: ui.row = status_slot
+                            current_need: Need, slot: ui.column = status_slot
                         ) -> None:
                             slot.clear()
                             with slot:
                                 with ui.column().classes(
-                                    "w-full gap-1 rounded-xl border border-slate-200 "
-                                    "border-l-4 p-3 "
-                                    f"{_STATUS_ROW_CLASSES[current_need.status]}"
+                                    "w-full gap-2 rounded-2xl border "
+                                    "border-slate-200 bg-white p-3 border-l-4 "
+                                    f"{_STATUS_BORDER_CLASSES[current_need.status]}"
                                 ):
-                                    ui.label(
-                                        status_line(
-                                            current_need.status,
-                                            category_names.get(
-                                                current_need.category_id, "Necesidad"
-                                            ),
+                                    with ui.row().classes("items-center gap-2"):
+                                        ui.label(
+                                            _STATUS_BADGE_LABEL[current_need.status]
+                                        ).classes(
+                                            status_badge_classes(current_need.status)
                                         )
-                                    ).classes(
-                                        "text-sm leading-relaxed text-slate-800"
-                                    )
+                                        need_name = category_names.get(
+                                            current_need.category_id, "Necesidad"
+                                        )
+                                        ui.label(need_name).classes(
+                                            "text-sm font-semibold text-slate-900 "
+                                            "break-words"
+                                        )
                                     count_text = commitment_count_text(
                                         current_need.active_commitment_count
                                     )

@@ -31,17 +31,27 @@ ListLocalities = Callable[[str], Sequence[str]]
 GeocodeAddress = Callable[[str, str, str], Awaitable[object | None]]
 
 _BOUNDED_MENU_PROPS = (
-    'outlined dense behavior=menu color=blue-grey-9 '
+    'filled rounded behavior=menu color=blue-grey-9 '
     'transition-show=none transition-hide=none '
     'popup-content-class=bounded-select-menu '
     'popup-content-style="max-height: 40vh !important; overflow-y: auto"'
 )
 _NEEDS_MULTISELECT_PROPS = f"{_BOUNDED_MENU_PROPS} use-chips"
+_SECTION_CARD_CLASSES = "w-full gap-3 rounded-2xl border border-slate-200 bg-white p-4"
+_SECTION_HEADING_CLASSES = "text-lg font-semibold text-slate-900"
+_SECONDARY_BUTTON_PROPS = "unelevated color=secondary"
 _CUSTOM_CATEGORY_PLACEHOLDER_ID = UUID(int=0)
 _PUBLICATION_FAILURE_MESSAGE = "No fue posible publicar el punto. Inténtalo de nuevo."
 _DUPLICATE_CUSTOM_CATEGORY_MESSAGE = "Esa necesidad ya está en la lista."
 _DUPLICATE_LINK_MESSAGE = "Ese enlace ya está en la lista."
 _LOW_CONFIDENCE_ADDRESS_MESSAGE = "Toca el mapa para ubicar el punto correctamente."
+
+
+def render_section_heading(icon: str, icon_classes: str, text: str) -> None:
+    """Render a section heading with a small colored icon for visual rhythm."""
+    with ui.row().classes("items-center gap-2"):
+        ui.icon(icon).classes(f"{icon_classes} shrink-0").props("aria-hidden=true")
+        ui.label(text).classes(_SECTION_HEADING_CLASSES)
 
 
 class _PublicationHandlerError(Exception):
@@ -214,224 +224,257 @@ def render_create_help_point(
 
     departments = tuple(list_departments())
     affected_departments = tuple(list_affected_departments())
-    with ui.column().classes("w-full max-w-md md:max-w-2xl mx-auto gap-3 p-4"):
-        form_container = ui.column().classes("w-full gap-3")
+    with ui.column().classes("w-full min-h-screen bg-slate-50"), ui.column().classes(
+        "w-full max-w-md md:max-w-2xl mx-auto gap-4 p-4"
+    ):
+        ui.label("Crear iniciativa").classes(
+            "text-2xl font-bold text-slate-900"
+        )
+        form_container = ui.column().classes("w-full gap-4")
         with form_container:
-            ui.label("Crear punto de ayuda").classes("text-h5")
-            name = ui.input("Nombre del lugar").classes("w-full")
-            description = ui.textarea(
-                "¿Qué está pasando en este punto?",
-                placeholder=(
-                    "Ej: Varias familias fueron evacuadas y estamos "
-                    "organizando ayuda desde este parque."
-                ),
-            ).classes("w-full")
-            category = ui.select(
-                options={"": "Selecciona una categoría", **{
-                    member.value: member.value for member in HelpPointCategory
-                }},
-                value="",
-                label="Categoría del punto",
-            ).classes("w-full").props(_BOUNDED_MENU_PROPS)
-            ui.label("Zona que recibirá la ayuda").classes("text-h6")
-            affected_areas_container = ui.column().classes("w-full gap-2")
-            affected_area_blocks: list[dict] = []
+            with ui.card().classes(_SECTION_CARD_CLASSES):
+                render_section_heading(
+                    "info", "text-[#003893]", "Información básica"
+                )
+                name = ui.input("Nombre de la iniciativa").classes("w-full")
+                description = ui.textarea(
+                    "¿Qué está pasando en este punto?",
+                    placeholder=(
+                        "Ej: Varias familias fueron evacuadas y estamos "
+                        "organizando ayuda desde este parque."
+                    ),
+                ).classes("w-full")
+                category = ui.select(
+                    options={"": "Selecciona una categoría", **{
+                        member.value: member.value for member in HelpPointCategory
+                    }},
+                    value="",
+                    label="Categoría del punto",
+                ).classes("w-full").props(_BOUNDED_MENU_PROPS)
 
-            def render_affected_area_block() -> dict:
-                with affected_areas_container:
-                    with ui.card().classes(
-                        "w-full gap-2 rounded-xl border border-slate-200 p-3"
-                    ) as block_card:
-                        block_department = ui.select(
-                            options={
-                                "": "Selecciona un departamento",
-                                **{
-                                    department: department
-                                    for department in affected_departments
+            with ui.card().classes(_SECTION_CARD_CLASSES):
+                render_section_heading(
+                    "warning", "text-amber-600", "Zona que recibirá la ayuda"
+                )
+                affected_areas_container = ui.column().classes("w-full gap-2")
+                affected_area_blocks: list[dict] = []
+
+                def render_affected_area_block() -> dict:
+                    with affected_areas_container:
+                        with ui.card().classes(
+                            "w-full gap-2 rounded-xl border border-slate-200 p-3"
+                        ) as block_card:
+                            block_department = ui.select(
+                                options={
+                                    "": "Selecciona un departamento",
+                                    **{
+                                        department: department
+                                        for department in affected_departments
+                                    },
                                 },
-                            },
-                            value="",
-                            label="Departamento afectado",
-                        ).classes("w-full").props(_BOUNDED_MENU_PROPS)
-                        block_city = ui.select(
-                            options={"": "Selecciona primero un departamento"},
-                            value="",
-                            label="Ciudad / Municipio afectado (opcional)",
-                        ).classes("w-full").props(_BOUNDED_MENU_PROPS)
-                        block_city.disable()
+                                value="",
+                                label="Departamento afectado",
+                            ).classes("w-full").props(_BOUNDED_MENU_PROPS)
+                            block_city = ui.select(
+                                options={"": "Selecciona primero un departamento"},
+                                value="",
+                                label="Ciudad / Municipio afectado (opcional)",
+                            ).classes("w-full").props(_BOUNDED_MENU_PROPS)
+                            block_city.disable()
 
-                        def change_block_department() -> None:
-                            update_locality_select(
-                                block_department,
-                                block_city,
-                                no_selection_label=(
-                                    "Toda la zona del departamento (opcional)"
-                                ),
+                            def change_block_department() -> None:
+                                update_locality_select(
+                                    block_department,
+                                    block_city,
+                                    no_selection_label=(
+                                        "Toda la zona del departamento (opcional)"
+                                    ),
+                                )
+
+                            block_department.on_value_change(change_block_department)
+
+                            block = {"department": block_department, "city": block_city}
+                            affected_area_blocks.append(block)
+
+                            def remove_affected_area() -> None:
+                                affected_area_blocks.remove(block)
+                                block_card.visible = False
+
+                            ui.button(
+                                "Quitar", on_click=remove_affected_area
+                            ).classes("w-full min-h-[44px] rounded-2xl").props(
+                                "unelevated color=red-9"
                             )
 
-                        block_department.on_value_change(change_block_department)
+                            return block
 
-                        block = {"department": block_department, "city": block_city}
-                        affected_area_blocks.append(block)
+                render_affected_area_block()
+                ui.button(
+                    "Agregar otra zona afectada", on_click=render_affected_area_block
+                ).classes("w-full min-h-[44px] rounded-2xl").props(
+                    _SECONDARY_BUTTON_PROPS
+                )
+                additional_affected_areas = ui.textarea(
+                    "¿Hay otras zonas que también recibirán ayuda? (opcional)"
+                ).classes("w-full")
 
-                        def remove_affected_area() -> None:
-                            affected_area_blocks.remove(block)
-                            block_card.visible = False
+            with ui.card().classes(_SECTION_CARD_CLASSES):
+                render_section_heading(
+                    "location_on",
+                    "text-[#003893]",
+                    "Dónde se recibe o coordina la ayuda",
+                )
+                locations_container = ui.column().classes("w-full gap-2")
+                location_blocks: list[dict] = []
 
-                        ui.button(
-                            "Quitar", on_click=remove_affected_area
-                        ).classes("w-full min-h-[44px]").props("flat color=red-9")
-
-                        return block
-
-            render_affected_area_block()
-            ui.button(
-                "Agregar otra zona afectada", on_click=render_affected_area_block
-            ).classes("w-full min-h-[44px]").props("outline")
-            additional_affected_areas = ui.textarea(
-                "¿Hay otras zonas que también recibirán ayuda? (opcional)"
-            ).classes("w-full")
-            ui.label("Dónde se recibe o coordina la ayuda").classes("text-h6")
-            locations_container = ui.column().classes("w-full gap-2")
-            location_blocks: list[dict] = []
-
-            def render_location_block() -> dict:
-                with locations_container:
-                    with ui.card().classes(
-                        "w-full gap-2 rounded-xl border border-slate-200 p-3"
-                    ) as block_card:
-                        block_department = ui.select(
-                            options={
-                                "": "Selecciona un departamento",
-                                **{
-                                    department: department
-                                    for department in departments
+                def render_location_block() -> dict:
+                    with locations_container:
+                        with ui.card().classes(
+                            "w-full gap-2 rounded-xl border border-slate-200 p-3"
+                        ) as block_card:
+                            block_department = ui.select(
+                                options={
+                                    "": "Selecciona un departamento",
+                                    **{
+                                        department: department
+                                        for department in departments
+                                    },
                                 },
-                            },
-                            value="",
-                            label="Departamento del punto",
-                        ).classes("w-full").props(_BOUNDED_MENU_PROPS)
-                        block_city = ui.select(
-                            options={"": "Selecciona primero un departamento"},
-                            value="",
-                            label="Ciudad / Municipio del punto",
-                        ).classes("w-full").props(_BOUNDED_MENU_PROPS)
-                        block_city.disable()
-                        block_address = ui.input(
-                            "Dirección o referencia del lugar"
-                        ).classes("w-full")
+                                value="",
+                                label="Departamento del punto",
+                            ).classes("w-full").props(_BOUNDED_MENU_PROPS)
+                            block_city = ui.select(
+                                options={"": "Selecciona primero un departamento"},
+                                value="",
+                                label="Ciudad / Municipio del punto",
+                            ).classes("w-full").props(_BOUNDED_MENU_PROPS)
+                            block_city.disable()
+                            block_address = ui.input(
+                                "Dirección o referencia del lugar"
+                            ).classes("w-full")
 
-                        def change_block_department() -> None:
-                            update_locality_select(block_department, block_city)
+                            def change_block_department() -> None:
+                                update_locality_select(block_department, block_city)
 
-                        block_department.on_value_change(change_block_department)
+                            block_department.on_value_change(change_block_department)
 
-                        block_location = render_location_picker()
+                            block_location = render_location_picker()
 
-                        async def search_address() -> None:
-                            address_value = (block_address.value or "").strip()
-                            city_value = block_city.value or ""
-                            department_value = block_department.value or ""
-                            if (
-                                not address_value
-                                or not city_value
-                                or not department_value
-                            ):
-                                ui.notify(
-                                    "Completa departamento, ciudad / municipio y "
-                                    "dirección.",
-                                    type="negative",
+                            async def search_address() -> None:
+                                address_value = (block_address.value or "").strip()
+                                city_value = block_city.value or ""
+                                department_value = block_department.value or ""
+                                if (
+                                    not address_value
+                                    or not city_value
+                                    or not department_value
+                                ):
+                                    ui.notify(
+                                        "Completa departamento, ciudad / municipio y "
+                                        "dirección.",
+                                        type="negative",
+                                    )
+                                    return
+                                try:
+                                    geocoded = await geocode_address(
+                                        address_value,
+                                        city_value,
+                                        department_value,
+                                    )
+                                except Exception:
+                                    geocoded = None
+                                if geocoded is None:
+                                    ui.notify(
+                                        "No encontramos esa dirección. "
+                                        "Ubícala tocando el mapa.",
+                                        type="negative",
+                                    )
+                                    return
+                                block_location.set_coordinates(
+                                    geocoded.latitude, geocoded.longitude
                                 )
-                                return
-                            try:
-                                geocoded = await geocode_address(
-                                    address_value,
-                                    city_value,
-                                    department_value,
-                                )
-                            except Exception:
-                                geocoded = None
-                            if geocoded is None:
-                                ui.notify(
-                                    "No encontramos esa dirección. "
-                                    "Ubícala tocando el mapa.",
-                                    type="negative",
-                                )
-                                return
-                            block_location.set_coordinates(
-                                geocoded.latitude, geocoded.longitude
+                                if geocoded.is_low_confidence:
+                                    ui.notify(
+                                        _LOW_CONFIDENCE_ADDRESS_MESSAGE,
+                                        type="warning",
+                                    )
+
+                            block_address.on("keydown.enter", search_address)
+                            ui.button(
+                                "Buscar en el mapa", on_click=search_address
+                            ).classes("w-full min-h-[44px] rounded-2xl").props(
+                                _SECONDARY_BUTTON_PROPS
                             )
-                            if geocoded.is_low_confidence:
-                                ui.notify(
-                                    _LOW_CONFIDENCE_ADDRESS_MESSAGE, type="warning"
-                                )
 
-                        block_address.on("keydown.enter", search_address)
-                        ui.button(
-                            "Buscar en el mapa", on_click=search_address
-                        ).classes("w-full min-h-[44px]")
+                            block = {
+                                "department": block_department,
+                                "city": block_city,
+                                "address": block_address,
+                                "location": block_location,
+                            }
+                            location_blocks.append(block)
 
-                        block = {
-                            "department": block_department,
-                            "city": block_city,
-                            "address": block_address,
-                            "location": block_location,
-                        }
-                        location_blocks.append(block)
+                            def remove_location() -> None:
+                                location_blocks.remove(block)
+                                block_card.visible = False
 
-                        def remove_location() -> None:
-                            location_blocks.remove(block)
-                            block_card.visible = False
+                            ui.button("Quitar", on_click=remove_location).classes(
+                                "w-full min-h-[44px] rounded-2xl"
+                            ).props("unelevated color=red-9")
 
-                        ui.button("Quitar", on_click=remove_location).classes(
-                            "w-full min-h-[44px]"
-                        ).props("flat color=red-9")
+                            return block
 
-                        return block
+                render_location_block()
+                ui.button(
+                    "Agregar otra ubicación", on_click=render_location_block
+                ).classes("w-full min-h-[44px] rounded-2xl").props(
+                    _SECONDARY_BUTTON_PROPS
+                )
 
-            render_location_block()
-            ui.button(
-                "Agregar otra ubicación", on_click=render_location_block
-            ).classes("w-full min-h-[44px]").props("outline")
-            coordinator_name = ui.input("Nombre de la persona coordinadora").classes(
-                "w-full"
-            )
-            coordinator_contact = ui.input(
-                "Contacto de la persona coordinadora"
-            ).classes("w-full")
-            selected_categories = ui.select(
-                options=list(categories),
-                label="Necesidades",
-                multiple=True,
-            ).classes("w-full").props(_NEEDS_MULTISELECT_PROPS)
+            with ui.card().classes(_SECTION_CARD_CLASSES):
+                render_section_heading(
+                    "person", "text-slate-500", "Datos de la persona coordinadora"
+                )
+                coordinator_name = ui.input("Nombre").classes("w-full")
+                coordinator_contact = ui.input("Contacto").classes("w-full")
 
-            def add_custom_category() -> None:
-                name = (custom_category_name.value or "").strip()
-                if not name:
-                    return
-                if name in categories:
-                    current_values = list(selected_categories.value or ())
-                    if name not in current_values:
-                        current_values.append(name)
-                        selected_categories.value = current_values
+            with ui.card().classes(_SECTION_CARD_CLASSES):
+                render_section_heading(
+                    "checklist", "text-emerald-600", "Necesidades"
+                )
+                selected_categories = ui.select(
+                    options=list(categories),
+                    label="Selecciona las necesidades",
+                    multiple=True,
+                ).classes("w-full").props(_NEEDS_MULTISELECT_PROPS)
+
+                def add_custom_category() -> None:
+                    name = (custom_category_name.value or "").strip()
+                    if not name:
+                        return
+                    if name in categories:
+                        current_values = list(selected_categories.value or ())
+                        if name not in current_values:
+                            current_values.append(name)
+                            selected_categories.value = current_values
+                        custom_category_name.value = ""
+                        return
+                    if name in selected_categories.options:
+                        ui.notify(_DUPLICATE_CUSTOM_CATEGORY_MESSAGE, type="warning")
+                        return
+                    selected_categories.options = [*selected_categories.options, name]
+                    selected_categories.value = [*(selected_categories.value or ()), name]
+                    selected_categories.update()
                     custom_category_name.value = ""
-                    return
-                if name in selected_categories.options:
-                    ui.notify(_DUPLICATE_CUSTOM_CATEGORY_MESSAGE, type="warning")
-                    return
-                selected_categories.options = [*selected_categories.options, name]
-                selected_categories.value = [*(selected_categories.value or ()), name]
-                selected_categories.update()
-                custom_category_name.value = ""
 
-            with ui.row().classes("w-full gap-2 items-end flex-nowrap"):
-                custom_category_name = ui.input("+ Agregar otra necesidad").classes(
-                    "flex-1 min-w-0"
-                )
-                ui.button("Agregar", on_click=add_custom_category).classes(
-                    "min-h-[44px] shrink-0"
-                )
-            custom_category_name.on("keydown.enter", add_custom_category)
+                with ui.row().classes("w-full gap-2 items-end flex-nowrap"):
+                    custom_category_name = ui.input("Otra necesidad").classes(
+                        "flex-1 min-w-0"
+                    )
+                    ui.button("Agregar", on_click=add_custom_category).classes(
+                        "min-h-[44px] shrink-0 rounded-2xl"
+                    ).props(_SECONDARY_BUTTON_PROPS)
+                custom_category_name.on("keydown.enter", add_custom_category)
 
             important_links: list[str] = []
 
@@ -461,18 +504,23 @@ def render_create_help_point(
                             on_click=lambda url=url, row=link_row: remove_link(
                                 url, row
                             ),
-                        ).classes("min-h-[44px] shrink-0").props("flat")
+                        ).classes("min-h-[44px] shrink-0 rounded-2xl").props(
+                            "unelevated color=red-9"
+                        )
 
-            ui.label("Enlaces importantes").classes("text-h6")
-            with ui.row().classes("w-full gap-2 items-end flex-nowrap"):
-                link_input = ui.input("Enlace importante (URL)").classes(
-                    "flex-1 min-w-0"
+            with ui.card().classes(_SECTION_CARD_CLASSES):
+                render_section_heading(
+                    "link", "text-slate-500", "Enlaces importantes"
                 )
-                ui.button("Agregar enlace", on_click=add_link).classes(
-                    "min-h-[44px] shrink-0"
-                )
-            link_input.on("keydown.enter", add_link)
-            links_container = ui.column().classes("w-full gap-2")
+                with ui.row().classes("w-full gap-2 items-end flex-nowrap"):
+                    link_input = ui.input("Enlace importante (URL)").classes(
+                        "flex-1 min-w-0"
+                    )
+                    ui.button("Agregar enlace", on_click=add_link).classes(
+                        "min-h-[44px] shrink-0 rounded-2xl"
+                    ).props(_SECONDARY_BUTTON_PROPS)
+                link_input.on("keydown.enter", add_link)
+                links_container = ui.column().classes("w-full gap-2")
 
             def submit() -> None:
                 nonlocal submitting, published
@@ -528,7 +576,9 @@ def render_create_help_point(
                     form_container.visible = False
                     success_container.clear()
                     with success_container:
-                        ui.label("Punto de ayuda publicado").classes("text-h5")
+                        ui.label("Punto de ayuda publicado").classes(
+                            "text-2xl font-bold text-slate-900"
+                        )
                         ui.label(
                             "Este enlace es privado. Cópialo y guárdalo: lo necesitarás "
                             "para administrar el punto."
@@ -561,13 +611,16 @@ def render_create_help_point(
                                 )
 
                         ui.button("Copiar enlace", on_click=copy_admin_url).classes(
-                            "w-full min-h-[44px]"
-                        )
+                            "w-full min-h-[44px] rounded-2xl"
+                        ).props(_SECONDARY_BUTTON_PROPS)
                         ui.link("Abrir administración", admin_url).classes(
-                            "w-full min-h-[44px] flex items-center justify-center"
+                            "w-full min-h-[44px] flex items-center justify-center "
+                            "rounded-2xl bg-[#003893] text-white no-underline"
                         )
                         ui.link("Volver al inicio", "/").classes(
-                            "w-full min-h-[44px] flex items-center justify-center"
+                            "w-full min-h-[44px] flex items-center justify-center "
+                            "rounded-2xl border border-slate-200 text-slate-700 "
+                            "font-medium no-underline"
                         )
                     success_container.visible = True
                 finally:
@@ -577,7 +630,9 @@ def render_create_help_point(
 
             publish_button = ui.button(
                 "Publicar punto de ayuda", on_click=submit
-            ).classes("w-full min-h-[44px]")
+            ).classes("w-full min-h-[44px] rounded-2xl").props(
+                "unelevated color=secondary"
+            )
 
-        success_container = ui.column().classes("w-full gap-4")
+        success_container = ui.column().classes("w-full gap-6")
         success_container.visible = False

@@ -18,6 +18,14 @@ from backend.infrastructure.postgres.database import (
 from backend.infrastructure.postgres.repository import PostgresHelpPointRepository
 from frontend.app import create_app
 
+COLOMBIA_FLAG_FAVICON = (
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">'
+    '<rect width="24" height="12" y="0" fill="#FCD116"/>'
+    '<rect width="24" height="6" y="12" fill="#003893"/>'
+    '<rect width="24" height="6" y="18" fill="#CE1126"/>'
+    "</svg>"
+)
+
 
 def build_runtime(settings: ApplicationSettings) -> tuple[str, bool]:
     """Build application dependencies and register routes from explicit configuration."""
@@ -73,4 +81,5 @@ def run() -> None:
         reload=False,
         storage_secret=storage_secret,
         session_middleware_kwargs={"https_only": https_only},
+        favicon=COLOMBIA_FLAG_FAVICON,
     )

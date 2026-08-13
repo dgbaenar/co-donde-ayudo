@@ -40,6 +40,7 @@ class RecordingLeaflet(RecordingElement):
         self.zoom = zoom
         self.markers = []
         self.handlers = {}
+        self.layer_calls = []
 
     def on(self, event_name, handler):
         self.handlers[event_name] = handler
@@ -49,6 +50,12 @@ class RecordingLeaflet(RecordingElement):
         marker = RecordingMarker(latlng)
         self.markers.append(marker)
         return marker
+
+    def clear_layers(self):
+        self.layer_calls.append(("clear_layers",))
+
+    def tile_layer(self, *, url_template, options):
+        self.layer_calls.append(("tile_layer", url_template, options))
 
 
 class RecordingUi:
@@ -153,6 +160,44 @@ class HelpPointMapTests(unittest.TestCase):
         self.assertIn("🔴 &lt;b&gt;Agua&lt;/b&gt;", popup)
         self.assertIn(f'href="/puntos/{point.id}"', popup)
 
+    def test_category_pin_color_is_a_distinct_strong_hex_per_category(self) -> None:
+        colors = {
+            category: help_point_map.category_pin_color(category)
+            for category in HelpPointCategory
+        }
+
+        for category, color in colors.items():
+            with self.subTest(category=category):
+                self.assertRegex(color, r"^#[0-9a-fA-F]{6}$")
+        self.assertEqual(len(set(colors.values())), len(colors))
+
+    def test_category_badge_classes_is_a_solid_pill_matching_its_map_pin_color(self) -> None:
+        for category in HelpPointCategory:
+            with self.subTest(category=category):
+                classes = help_point_map.category_badge_classes(category)
+                self.assertIn("rounded-full", classes)
+                self.assertIn("text-white", classes)
+                self.assertIn(
+                    f"bg-[{help_point_map.category_pin_color(category)}]", classes
+                )
+
+    def test_uses_a_modern_light_basemap_instead_of_the_default_osm_tiles(self) -> None:
+        fake_ui = RecordingUi()
+        original_ui = help_point_map.ui
+        help_point_map.ui = fake_ui
+        try:
+            map_element = help_point_map.render_help_point_map(
+                (), {"Agua": self.category_id}
+            )
+        finally:
+            help_point_map.ui = original_ui
+
+        self.assertEqual(map_element.layer_calls[0], ("clear_layers",))
+        _, url_template, options = map_element.layer_calls[1]
+        self.assertIn("cartocdn.com", url_template)
+        self.assertIn("CARTO", options["attribution"])
+        self.assertIn("OpenStreetMap", options["attribution"])
+
     def test_renders_colombia_map_with_one_marker_per_location(self) -> None:
         fake_ui = RecordingUi()
         original_ui = help_point_map.ui
@@ -177,6 +222,16 @@ class HelpPointMapTests(unittest.TestCase):
         self.assertEqual(map_element.markers[0].method_calls, [])
         map_element.handlers["init"]()
         self.assertEqual(map_element.markers[0].method_calls[0][0], "bindPopup")
+        icon_calls = [
+            call for call in map_element.markers[0].method_calls if call[0] == ":setIcon"
+        ]
+        self.assertEqual(len(icon_calls), 1)
+        icon_expression = icon_calls[0][1][0]
+        self.assertIn("L.divIcon(", icon_expression)
+        self.assertIn(
+            help_point_map.category_pin_color(HelpPointCategory.RESCUE_OPERATIONS),
+            icon_expression,
+        )
 
     def test_renders_one_marker_per_location_for_a_multi_location_point(self) -> None:
         fake_ui = RecordingUi()

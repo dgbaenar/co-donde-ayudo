@@ -7,7 +7,7 @@ from typing import Any
 
 from nicegui import ui
 
-from frontend.components.help_point_map import COLOMBIA_CENTER
+from frontend.components.help_point_map import COLOMBIA_CENTER, apply_modern_basemap
 
 
 @dataclass(slots=True)
@@ -44,8 +44,9 @@ def render_location_picker() -> LocationSelection:
     """Render a map which stores the latest clicked location."""
     ui.label("Toca el mapa para marcar la ubicación")
     map_element = ui.leaflet(center=COLOMBIA_CENTER, zoom=5).classes(
-        "w-full h-80 md:h-[28rem] rounded"
+        "w-full h-80 md:h-[28rem] rounded-2xl overflow-hidden shadow-sm"
     )
+    apply_modern_basemap(map_element)
     selection = LocationSelection(map_element)
 
     def select_location(event) -> None:

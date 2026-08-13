@@ -41,7 +41,7 @@ def render_coordinator_access(authorize: AuthorizeCoordinatorAccess) -> None:
             ).classes("text-sm leading-relaxed text-slate-600")
             access_key = ui.input("Clave de acceso", password=True).classes(
                 "w-full"
-            ).props("outlined dense")
+            ).props("filled rounded")
 
             def submit() -> None:
                 provided_key = access_key.value or ""
@@ -56,18 +56,20 @@ def render_coordinator_access(authorize: AuthorizeCoordinatorAccess) -> None:
                 ui.navigate.to("/crear")
 
             ui.button("Continuar", on_click=submit).classes(
-                "w-full min-h-[48px] text-base"
-            ).props("unelevated color=primary")
+                "w-full min-h-[48px] text-base rounded-2xl"
+            ).props("unelevated color=secondary")
 
             with ui.column().classes(
-                "w-full gap-2 rounded-lg border border-slate-200 bg-slate-50 p-2"
+                "w-full gap-2 rounded-xl bg-blue-50 p-3"
             ):
                 with ui.row().classes("w-full items-start gap-2"):
-                    ui.label("ℹ️").classes("text-xs leading-relaxed")
+                    ui.icon("info").classes(
+                        "text-blue-600 text-base shrink-0"
+                    ).props("aria-hidden=true")
                     ui.label(
                         "¿No tienes clave? Pídesela a los influenciadores que "
                         "promueven esta página, o escríbenos:"
-                    ).classes("text-xs leading-relaxed text-slate-600")
+                    ).classes("text-xs leading-relaxed text-blue-900")
                 ui.label("WhatsApp: dan.barod").classes(
                     "text-xs font-semibold text-white bg-emerald-700 "
                     "rounded px-2 py-1 self-start"

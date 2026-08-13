@@ -38,6 +38,7 @@ class RecordingElement:
         self.on_change = kwargs.get("on_change")
         self.classes_value = ""
         self.props_value = ""
+        self.style_value = ""
         self.visible = True
         self.enabled = True
         self.update_calls = 0
@@ -47,6 +48,7 @@ class RecordingElement:
     def __enter__(self): return self
     def __exit__(self, *_args): return False
     def classes(self, value): self.classes_value = value; return self
+    def style(self, value): self.style_value = value; return self
     def props(self, value):
         self.props_value = value
         if "disable" in value.split():
@@ -83,6 +85,7 @@ class RecordingUi:
     def select(self, *args, **kwargs): return self._record("select", *args, **kwargs)
     def button(self, *args, **kwargs): return self._record("button", *args, **kwargs)
     def link(self, *args, **kwargs): return self._record("link", *args, **kwargs)
+    def icon(self, *args, **kwargs): return self._record("icon", *args, **kwargs)
     def notify(self, *args, **kwargs): return self._record("notify", *args, **kwargs)
     async def run_javascript(self, script):
         self.javascript_calls.append(script)
@@ -587,10 +590,10 @@ class CreateHelpPointResponsivePresentationTests(unittest.TestCase):
     @staticmethod
     def fill_valid_form(fake_ui: RecordingUi, *, need: str | None = None) -> None:
         field_values = {
-            "Nombre del lugar": "Parque Central",
+            "Nombre de la iniciativa": "Parque Central",
             "Dirección o referencia del lugar": "Calle 5 # 10-20",
-            "Nombre de la persona coordinadora": "Ana",
-            "Contacto de la persona coordinadora": "Contacto local",
+            "Nombre": "Ana",
+            "Contacto": "Contacto local",
         }
         for element in fake_ui.elements:
             if element.kind == "input" and element.args:
@@ -613,7 +616,7 @@ class CreateHelpPointResponsivePresentationTests(unittest.TestCase):
             label = element.kwargs.get("label")
             if label in select_values:
                 element.value = select_values[label]
-            elif label == "Necesidades" and need is not None:
+            elif label == "Selecciona las necesidades" and need is not None:
                 element.value = [need]
 
         link_input = next(
@@ -655,7 +658,40 @@ class CreateHelpPointResponsivePresentationTests(unittest.TestCase):
             create_help_point.ui = original_ui
 
         render_picker.assert_called_once_with()
-        self.assertIn("w-full max-w-md md:max-w-2xl mx-auto gap-3 p-4", next(element.classes_value for element in fake_ui.elements if element.kind == "column"))
+        self.assertTrue(
+            any(
+                "w-full max-w-md md:max-w-2xl mx-auto gap-4 p-4" == element.classes_value
+                for element in fake_ui.elements
+                if element.kind == "column"
+            )
+        )
+        with self.subTest("page background matches the rest of the app"):
+            self.assertTrue(
+                any(
+                    element.kind == "column"
+                    and "min-h-screen" in element.classes_value
+                    and "bg-slate-50" in element.classes_value
+                    for element in fake_ui.elements
+                )
+            )
+        with self.subTest("primary publish action uses the brand color"):
+            publish_button = next(
+                element
+                for element in fake_ui.elements
+                if element.kind == "button"
+                and element.args == ("Publicar punto de ayuda",)
+            )
+            self.assertIn("unelevated", publish_button.props_value)
+            self.assertIn("color=secondary", publish_button.props_value)
+            self.assertIn("rounded-2xl", publish_button.classes_value)
+        with self.subTest("every button uses the same pill shape"):
+            all_buttons = [
+                element for element in fake_ui.elements if element.kind == "button"
+            ]
+            self.assertTrue(all_buttons)
+            for button in all_buttons:
+                with self.subTest(button=button.args[0] if button.args else None):
+                    self.assertIn("rounded-2xl", button.classes_value)
         fields = [element for element in fake_ui.elements if element.kind in {"input", "textarea", "select"}]
         self.assertTrue(fields)
         self.assertFalse(any(element.args and element.args[0] in {"Latitud", "Longitud"} for element in fields))
@@ -672,12 +708,12 @@ class CreateHelpPointResponsivePresentationTests(unittest.TestCase):
             for element in fields
             if element.args
             and element.args[0]
-            not in {"+ Agregar otra necesidad", "Enlace importante (URL)"}
+            not in {"Otra necesidad", "Enlace importante (URL)"}
         ]
         self.assertTrue(full_width_fields)
         self.assertTrue(all("w-full" in element.classes_value for element in full_width_fields))
         custom_category_name = next(
-            element for element in fields if element.args and element.args[0] == "+ Agregar otra necesidad"
+            element for element in fields if element.args and element.args[0] == "Otra necesidad"
         )
         self.assertIn("flex-1", custom_category_name.classes_value)
         self.assertIn("w-full min-h-[44px]", next(element for element in fake_ui.elements if element.kind == "button").classes_value)
@@ -728,8 +764,9 @@ class CreateHelpPointResponsivePresentationTests(unittest.TestCase):
         self.assertFalse(city.enabled)
         self.assertNotIn("disable", city.props_value.split())
         self.assertEqual(city.disable_calls, 1)
-        self.assertIn("outlined", department.props_value)
-        self.assertIn("dense", city.props_value)
+        self.assertIn("filled", department.props_value)
+        self.assertIn("rounded", city.props_value)
+        self.assertNotIn("dense", city.props_value)
         bounded_selects = (
             affected_department,
             affected_city,
@@ -739,7 +776,7 @@ class CreateHelpPointResponsivePresentationTests(unittest.TestCase):
                 element
                 for element in fake_ui.elements
                 if element.kind == "select"
-                and element.kwargs.get("label") == "Necesidades"
+                and element.kwargs.get("label") == "Selecciona las necesidades"
             ),
         )
         for select in bounded_selects:
@@ -1270,13 +1307,13 @@ class CreateHelpPointResponsivePresentationTests(unittest.TestCase):
                     element
                     for element in fake_ui.elements
                     if element.kind == "column"
-                    and element.classes_value == "w-full gap-3"
+                    and element.classes_value == "w-full gap-4"
                 )
                 success_container = next(
                     element
                     for element in fake_ui.elements
                     if element.kind == "column"
-                    and element.classes_value == "w-full gap-4"
+                    and element.classes_value == "w-full gap-6"
                 )
                 self.assertTrue(form_container.visible)
                 self.assertFalse(success_container.visible)
@@ -1353,13 +1390,15 @@ class CreateHelpPointResponsivePresentationTests(unittest.TestCase):
                         for element in fake_ui.elements
                     )
                 )
-                self.assertTrue(
-                    any(
-                        element.kind == "link"
-                        and element.args == ("Volver al inicio", "/")
-                        for element in fake_ui.elements
-                    )
+                back_home_link = next(
+                    element
+                    for element in fake_ui.elements
+                    if element.kind == "link" and element.args == ("Volver al inicio", "/")
                 )
+                with self.subTest("back-home link is styled, not a bare browser link"):
+                    self.assertIn("no-underline", back_home_link.classes_value)
+                    self.assertIn("rounded-2xl", back_home_link.classes_value)
+                    self.assertIn("border", back_home_link.classes_value)
 
                 copy = next(
                     element
@@ -1431,7 +1470,7 @@ class CreateHelpPointResponsivePresentationTests(unittest.TestCase):
                     element
                     for element in fake_ui.elements
                     if element.kind == "input"
-                    and element.args == ("+ Agregar otra necesidad",)
+                    and element.args == ("Otra necesidad",)
                 ).value = "Necesidad sintética"
                 next(
                     element
@@ -1484,13 +1523,13 @@ class CreateHelpPointResponsivePresentationTests(unittest.TestCase):
                     element
                     for element in fake_ui.elements
                     if element.kind == "column"
-                    and element.classes_value == "w-full gap-3"
+                    and element.classes_value == "w-full gap-4"
                 )
                 success_container = next(
                     element
                     for element in fake_ui.elements
                     if element.kind == "column"
-                    and element.classes_value == "w-full gap-4"
+                    and element.classes_value == "w-full gap-6"
                 )
                 publish = next(
                     element
@@ -1555,13 +1594,13 @@ class CreateHelpPointResponsivePresentationTests(unittest.TestCase):
                     element
                     for element in fake_ui.elements
                     if element.kind == "column"
-                    and element.classes_value == "w-full gap-3"
+                    and element.classes_value == "w-full gap-4"
                 )
                 success_container = next(
                     element
                     for element in fake_ui.elements
                     if element.kind == "column"
-                    and element.classes_value == "w-full gap-4"
+                    and element.classes_value == "w-full gap-6"
                 )
                 publish = next(
                     element
@@ -1628,13 +1667,13 @@ class CreateHelpPointResponsivePresentationTests(unittest.TestCase):
                     element
                     for element in fake_ui.elements
                     if element.kind == "input"
-                    and element.args == ("Nombre del lugar",)
+                    and element.args == ("Nombre de la iniciativa",)
                 ).value = ""
                 next(
                     element
                     for element in fake_ui.elements
                     if element.kind == "input"
-                    and element.args == ("+ Agregar otra necesidad",)
+                    and element.args == ("Otra necesidad",)
                 ).value = "Necesidad sintética"
                 next(
                     element
@@ -1808,7 +1847,7 @@ class CreateHelpPointResponsivePresentationTests(unittest.TestCase):
                     element
                     for element in fake_ui.elements
                     if element.kind == "input"
-                    and element.args == ("+ Agregar otra necesidad",)
+                    and element.args == ("Otra necesidad",)
                 )
                 add_button = next(
                     element
@@ -1819,7 +1858,7 @@ class CreateHelpPointResponsivePresentationTests(unittest.TestCase):
                     element
                     for element in fake_ui.elements
                     if element.kind == "select"
-                    and element.kwargs.get("label") == "Necesidades"
+                    and element.kwargs.get("label") == "Selecciona las necesidades"
                 )
 
                 # A blank/whitespace-only value is a no-op.
@@ -1948,6 +1987,7 @@ class CreateHelpPointResponsivePresentationTests(unittest.TestCase):
                     for element in new_elements
                     if element.kind == "button" and element.args == ("Quitar",)
                 )
+                self.assertIn("color=red-9", remove_button.props_value)
                 remove_button.kwargs["on_click"]()
 
                 self.assertFalse(link_row.visible)
