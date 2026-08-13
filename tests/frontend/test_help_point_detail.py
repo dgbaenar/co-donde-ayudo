@@ -248,6 +248,11 @@ class HelpPointDetailTests(unittest.TestCase):
         self.assertIn("Familias evacuadas reciben apoyo.", labels)
         self.assertIn("Coordina: Ana", labels)
         self.assertIn("Contacto: Contacto", labels)
+        self.assertIn(
+            "Verifica la identidad de esta persona antes de confiarle dinero "
+            "o datos personales, y confirma que esta iniciativa siga activa.",
+            labels,
+        )
         self.assertIn("Publicado el 12 ago 2026", labels)
         self.assertIn("Roldanillo, Valle del Cauca", labels)
         self.assertIn("Calle 5 # 10-20, Cali, Valle del Cauca", labels)
@@ -897,7 +902,12 @@ class VoyAAyudarDialogTests(unittest.TestCase):
             for element in self.fake_ui.elements
             if element.kind == "label"
         ]
-        self.assertFalse(any("persona" in label for label in labels))
+        self.assertFalse(
+            any(
+                "confirmó ayuda" in label or "confirmaron ayuda" in label
+                for label in labels
+            )
+        )
 
     def test_singular_commitment_count_label(self) -> None:
         self._render(

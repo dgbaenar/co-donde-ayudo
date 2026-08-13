@@ -72,6 +72,23 @@ def filter_public_help_points(
     )
 
 
+def matches_search_query(
+    point: PublicHelpPoint,
+    category_names: Mapping[UUID, str],
+    query: str,
+) -> bool:
+    """Return True if query is a substring of the point's name, description, or needs."""
+    normalized = query.strip().casefold()
+    if not normalized:
+        return True
+    haystacks = (
+        point.name,
+        point.description,
+        *(category_names.get(need.category_id, "") for need in point.needs),
+    )
+    return any(normalized in haystack.casefold() for haystack in haystacks if haystack)
+
+
 def affected_area_text(point: PublicHelpPoint) -> str:
     """Describe every affected area, grouped by department."""
     return describe_affected_areas(point.affected_areas)
@@ -172,6 +189,13 @@ def render_home(
                 city=city.value or "",
                 department=department.value or "",
             )
+            location_filtered = tuple(
+                point
+                for point in location_filtered
+                if matches_search_query(
+                    point, category_names, search_input.value or ""
+                )
+            )
             render_category_chip(
                 "Todas las categorías",
                 "#003893",
@@ -199,6 +223,11 @@ def render_home(
             city=city.value or "",
             department=department.value or "",
             category=selected_category,
+        )
+        filtered_points = tuple(
+            point
+            for point in filtered_points
+            if matches_search_query(point, category_names, search_input.value or "")
         )
         activity_indicator.clear()
         activity_text = latest_activity_text(filtered_points)
@@ -347,6 +376,22 @@ def render_home(
                     "Valle del Cauca, Risaralda y Quindío."
                 ).classes("text-sm leading-relaxed text-slate-600")
             with ui.column().classes(
+                "w-full gap-1 rounded-2xl bg-white p-4 border-l-4 border-amber-500 "
+                "shadow-sm"
+            ):
+                with ui.row().classes("items-center gap-2"):
+                    ui.icon("gpp_maybe").classes("text-amber-600").props(
+                        "aria-hidden=true"
+                    )
+                    ui.label("Antes de ayudar").classes(
+                        "text-sm font-semibold text-slate-900"
+                    )
+                ui.label(
+                    "Verifica que la iniciativa siga activa y confirma la "
+                    "identidad de la persona coordinadora antes de compartir "
+                    "dinero, datos personales o comprometerte a ayudar."
+                ).classes("text-sm leading-relaxed text-slate-600")
+            with ui.column().classes(
                 "w-full gap-3 rounded-2xl bg-white p-4 shadow-sm"
             ).props("id=resultados"):
                 with ui.row().classes("items-center gap-2"):
@@ -356,10 +401,18 @@ def render_home(
                     ui.label("Filtros").classes(
                         "text-base font-bold text-slate-800"
                     )
+                search_input = ui.input(
+                    "Buscar por nombre, lugar o necesidad",
+                    on_change=refresh,
+                ).classes("w-full").props("filled rounded clearable prepend-icon=search")
                 category_chips = ui.row().classes(
                     "w-full flex-nowrap sm:flex-wrap gap-2 overflow-x-auto "
                     "sm:overflow-visible pb-1"
                 )
+                ui.label(
+                    "Busca por el departamento o ciudad hacia donde se "
+                    "dirige la ayuda."
+                ).classes("text-xs text-slate-500")
                 with ui.row().classes(
                     "w-full gap-3 flex-col sm:flex-row sm:flex-nowrap"
                 ):

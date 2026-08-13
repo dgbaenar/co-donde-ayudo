@@ -202,6 +202,17 @@ def render_help_point_detail(
                     ui.label(f"Contacto: {point.coordinator_contact}").classes(
                         "text-base text-slate-700"
                     )
+                with ui.row().classes(
+                    "w-full items-start gap-2 rounded-xl bg-amber-50 p-3"
+                ):
+                    ui.icon("gpp_maybe").classes(
+                        "text-amber-600 text-base shrink-0"
+                    ).props("aria-hidden=true")
+                    ui.label(
+                        "Verifica la identidad de esta persona antes de "
+                        "confiarle dinero o datos personales, y confirma que "
+                        "esta iniciativa siga activa."
+                    ).classes("text-xs leading-relaxed text-amber-900")
                 ui.label(f"Publicado el {format_short_date(point.created_at)}").classes(
                     "text-xs text-slate-400 mt-1"
                 )
