@@ -173,6 +173,7 @@ class RuntimeTests(unittest.TestCase):
             port=4321,
             show=False,
             reload=False,
+            reconnect_timeout=30.0,
             storage_secret="synthetic-session-secret",
             session_middleware_kwargs={"https_only": True},
             favicon=runtime.COLOMBIA_FLAG_FAVICON,

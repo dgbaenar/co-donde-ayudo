@@ -79,6 +79,7 @@ def run() -> None:
         port=settings.port,
         show=False,
         reload=False,
+        reconnect_timeout=30.0,
         storage_secret=storage_secret,
         session_middleware_kwargs={"https_only": https_only},
         favicon=COLOMBIA_FLAG_FAVICON,
