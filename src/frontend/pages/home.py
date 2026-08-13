@@ -720,28 +720,9 @@ def render_home(
             assert list_public_help_points_page is not None
             try:
                 if not owns_refresh:
-                    assert wait_for_cached_public_home is not None
-                    shared = await asyncio.wait_for(
-                        asyncio.to_thread(
-                            wait_for_cached_public_home,
-                            timeout=PUBLIC_POINTS_OPERATION_TIMEOUT_SECONDS,
-                        ),
-                        timeout=PUBLIC_POINTS_OPERATION_TIMEOUT_SECONDS,
+                    logger.info(
+                        "public home refresh already in progress; loading this view directly"
                     )
-                    if shared is None:
-                        raise TimeoutError("timed out waiting for public home refresh")
-                    active_points = filter_public_help_points(shared.points)
-                    categories = shared.categories
-                    category_names = {
-                        category_id: name for name, category_id in categories.items()
-                    }
-                    loading = False
-                    refreshing = False
-                    loading_status.set_text("")
-                    search_input.enable()
-                    department.enable()
-                    refresh()
-                    return
                 categories = await asyncio.wait_for(
                     asyncio.to_thread(list_active_categories),
                     timeout=PUBLIC_POINTS_OPERATION_TIMEOUT_SECONDS,
@@ -754,7 +735,7 @@ def render_home(
                     list_public_help_points_page,
                     update_progress,
                 )
-                if finish_public_home_refresh is not None:
+                if owns_refresh and finish_public_home_refresh is not None:
                     assert refresh_token is not None
                     finish_public_home_refresh(refresh_token, loaded_points, categories)
             except Exception:

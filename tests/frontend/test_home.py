@@ -497,6 +497,60 @@ class ProgressiveHomeLoadingTests(unittest.TestCase):
         finally:
             home.ui = original_ui
 
+    def test_follower_loads_points_when_shared_refresh_does_not_finish(self) -> None:
+        fake_ui = RecordingUi()
+        point = self.point(datetime(2026, 8, 13, 12, tzinfo=UTC), 1)
+        database_calls = []
+        original_ui = home.ui
+        home.ui = fake_ui
+        try:
+            with patch.object(home, "render_help_point_map"):
+                home.render_home(
+                    (),
+                    {},
+                    lambda: AFFECTED_DEPARTMENTS,
+                    list_localities,
+                    list_active_categories=lambda: database_calls.append("categories")
+                    or {},
+                    open_public_help_points_snapshot=lambda: database_calls.append("snapshot")
+                    or (datetime(2026, 8, 13, 13, tzinfo=UTC), 1),
+                    list_public_help_points_page=lambda **_kwargs: database_calls.append("page")
+                    or (point,),
+                    get_cached_public_home=lambda: None,
+                    begin_public_home_refresh=lambda: None,
+                    finish_public_home_refresh=lambda *_args: True,
+                    abort_public_home_refresh=lambda _token: None,
+                    wait_for_cached_public_home=lambda **_kwargs: None,
+                )
+
+                timer = next(
+                    element for element in fake_ui.elements if element.kind == "timer"
+                )
+                with patch.object(home, "PUBLIC_POINTS_OPERATION_TIMEOUT_SECONDS", 0.001):
+                    asyncio.run(timer.args[1]())
+
+                self.assertEqual(database_calls, ["categories", "snapshot", "page"])
+                self.assertTrue(
+                    any(
+                        element.kind == "link"
+                        and element.kwargs.get("target") == f"/puntos/{point.id}"
+                        for element in fake_ui.elements
+                    )
+                )
+                self.assertFalse(
+                    any(
+                        element.kind == "label"
+                        and element.args
+                        == (
+                            "No pudimos terminar de cargar todos los puntos. "
+                            "Recarga la página.",
+                        )
+                        for element in fake_ui.elements
+                    )
+                )
+        finally:
+            home.ui = original_ui
+
     def test_stale_cached_home_stays_interactive_while_refreshing_in_background(self) -> None:
         fake_ui = RecordingUi()
         stale_point = self.point(datetime(2026, 8, 13, 11, tzinfo=UTC), 1)
