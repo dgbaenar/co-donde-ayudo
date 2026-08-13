@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+from types import SimpleNamespace
 import unittest
 from datetime import UTC, datetime
 from unittest.mock import patch
@@ -47,6 +49,10 @@ class RecordingElement:
             element for element in self.ui.elements if element not in removed
         ]
         self.children.clear()
+
+    def set_text(self, value):
+        self.args = (value,)
+        return self
 
 
 class RecordingDialog(RecordingElement):
@@ -120,6 +126,9 @@ class RecordingUi:
             self.context[-1].children.append(element)
         return element
 
+    def timer(self, *args, **kwargs):
+        return self._record("timer", *args, **kwargs)
+
 
 def _descendants(element):
     for child in element.children:
@@ -181,6 +190,100 @@ class HelpPointDetailTests(unittest.TestCase):
         self.ui_patch.start()
         self.addCleanup(self.ui_patch.stop)
         self.no_op_create_commitment = lambda *_args: object()
+
+    def test_cached_detail_renders_immediately_without_database_refresh(self) -> None:
+        cached = SimpleNamespace(
+            point=self.point,
+            categories=self.categories,
+            stale=False,
+        )
+        refresh_calls = []
+
+        with patch.object(help_point_detail, "render_help_point_map"):
+            help_point_detail.render_cached_help_point_detail_for_path(
+                str(self.point.id),
+                lambda _point_id: cached,
+                lambda point_id: refresh_calls.append(point_id),
+                self.no_op_create_commitment,
+            )
+
+        self.assertIn(
+            self.point.name,
+            [
+                element.args[0]
+                for element in self.fake_ui.elements
+                if element.kind == "label"
+            ],
+        )
+        self.assertEqual(refresh_calls, [])
+        self.assertFalse(
+            any(element.kind == "timer" for element in self.fake_ui.elements)
+        )
+
+    def test_stale_detail_renders_immediately_and_refreshes_in_background(self) -> None:
+        cached = SimpleNamespace(
+            point=self.point,
+            categories=self.categories,
+            stale=True,
+        )
+        refresh_calls = []
+
+        with patch.object(help_point_detail, "render_help_point_map"):
+            help_point_detail.render_cached_help_point_detail_for_path(
+                str(self.point.id),
+                lambda _point_id: cached,
+                lambda point_id: refresh_calls.append(point_id) or cached,
+                self.no_op_create_commitment,
+            )
+
+        timer = next(
+            element for element in self.fake_ui.elements if element.kind == "timer"
+        )
+        self.assertIn(
+            self.point.name,
+            [
+                element.args[0]
+                for element in self.fake_ui.elements
+                if element.kind == "label"
+            ],
+        )
+
+        asyncio.run(timer.args[1]())
+
+        self.assertEqual(refresh_calls, [self.point.id])
+
+    def test_cold_detail_shows_loading_then_renders_direct_lookup(self) -> None:
+        refreshed = SimpleNamespace(
+            point=self.point,
+            categories=self.categories,
+            stale=False,
+        )
+
+        with patch.object(help_point_detail, "render_help_point_map"):
+            help_point_detail.render_cached_help_point_detail_for_path(
+                str(self.point.id),
+                lambda _point_id: None,
+                lambda _point_id: refreshed,
+                self.no_op_create_commitment,
+            )
+            labels_before = [
+                element.args[0]
+                for element in self.fake_ui.elements
+                if element.kind == "label"
+            ]
+            timer = next(
+                element for element in self.fake_ui.elements if element.kind == "timer"
+            )
+            asyncio.run(timer.args[1]())
+
+        self.assertIn("Cargando punto de ayuda…", labels_before)
+        labels_after = [
+            element.args[0]
+            for element in self.fake_ui.elements
+            if element.kind == "label"
+        ]
+        self.assertIn(self.point.name, labels_after)
+        self.assertNotIn("Cargando punto de ayuda…", labels_after)
 
     def test_valid_uuid_renders_semantic_sections_status_rows_and_point_map(self) -> None:
         requested_ids = []

@@ -4,7 +4,8 @@ from dataclasses import replace
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
-from sqlalchemy import select
+from sqlalchemy import and_, func, or_, select
+from sqlalchemy.orm import selectinload
 
 from backend.domain.models import (
     AffectedArea,
@@ -109,6 +110,72 @@ class PostgresHelpPointRepository:
                 .where(HelpPointRow.activo.is_(True))
                 .order_by(HelpPointRow.created_at.desc())
             ).all()
+            return tuple(self._point_from_row(row) for row in rows)
+
+    def get_active_help_point_by_id(self, point_id: UUID) -> HelpPoint | None:
+        statement = (
+            select(HelpPointRow)
+            .where(
+                HelpPointRow.id == point_id,
+                HelpPointRow.activo.is_(True),
+            )
+            .options(
+                selectinload(HelpPointRow.affected_areas),
+                selectinload(HelpPointRow.locations),
+                selectinload(HelpPointRow.needs).selectinload(NeedRow.commitments),
+            )
+        )
+        with self._session_factory() as session:
+            row = session.scalars(statement).first()
+            return None if row is None else self._point_from_row(row)
+
+    def open_active_help_points_snapshot(self) -> tuple[datetime, int]:
+        with self._session_factory() as session:
+            snapshot_created_at = session.scalar(select(func.now()))
+            if snapshot_created_at is None:
+                raise RuntimeError("database did not provide a snapshot timestamp")
+            count = session.scalar(
+                select(func.count(HelpPointRow.id)).where(
+                    HelpPointRow.activo.is_(True),
+                    HelpPointRow.created_at <= snapshot_created_at,
+                )
+            )
+        return snapshot_created_at, int(count or 0)
+
+    def list_active_help_points_page(
+        self,
+        *,
+        snapshot_created_at: datetime,
+        before_created_at: datetime | None,
+        before_id: UUID | None,
+        limit: int,
+    ) -> tuple[HelpPoint, ...]:
+        statement = (
+            select(HelpPointRow)
+            .where(
+                HelpPointRow.activo.is_(True),
+                HelpPointRow.created_at <= snapshot_created_at,
+            )
+            .options(
+                selectinload(HelpPointRow.affected_areas),
+                selectinload(HelpPointRow.locations),
+                selectinload(HelpPointRow.needs).selectinload(NeedRow.commitments),
+            )
+            .order_by(HelpPointRow.created_at.desc(), HelpPointRow.id.desc())
+            .limit(limit)
+        )
+        if before_created_at is not None and before_id is not None:
+            statement = statement.where(
+                or_(
+                    HelpPointRow.created_at < before_created_at,
+                    and_(
+                        HelpPointRow.created_at == before_created_at,
+                        HelpPointRow.id < before_id,
+                    ),
+                )
+            )
+        with self._session_factory() as session:
+            rows = session.scalars(statement).all()
             return tuple(self._point_from_row(row) for row in rows)
 
     def get_help_point_by_admin_token(self, admin_token: str) -> HelpPoint | None:

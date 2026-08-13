@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import Callable, Mapping
 from datetime import datetime
+from typing import Protocol
 from uuid import UUID
 
 from nicegui import ui
@@ -23,8 +25,19 @@ logger = logging.getLogger(__name__)
 
 
 GetPublicHelpPoint = Callable[[UUID], PublicHelpPoint | None]
+
+
+class CachedPublicPointView(Protocol):
+    point: PublicHelpPoint
+    categories: Mapping[str, UUID]
+    stale: bool
+
+
+GetCachedPublicHelpPoint = Callable[[UUID], CachedPublicPointView | None]
+RefreshPublicHelpPoint = Callable[[UUID], CachedPublicPointView | None]
 CreateCommitmentHandler = Callable[[UUID, str, str | None], Need]
 _NOT_FOUND_MESSAGE = "No fue posible encontrar este punto de ayuda."
+DETAIL_LOAD_TIMEOUT_SECONDS = 15.0
 _STATUS_BORDER_CLASSES = {
     NeedStatus.NEEDS_HELP: "border-l-red-500",
     NeedStatus.HELP_ON_THE_WAY: "border-l-amber-500",
@@ -96,6 +109,64 @@ def render_help_point_detail_for_path(
     render_help_point_detail(
         get_public_help_point(parsed_id), categories, create_commitment
     )
+
+
+def render_cached_help_point_detail_for_path(
+    point_id: str,
+    get_cached_public_help_point: GetCachedPublicHelpPoint,
+    refresh_public_help_point: RefreshPublicHelpPoint,
+    create_commitment: CreateCommitmentHandler,
+) -> None:
+    """Render cached detail immediately and bound any required database refresh."""
+    try:
+        parsed_id = UUID(point_id)
+    except (AttributeError, TypeError, ValueError):
+        render_help_point_detail(None, {}, create_commitment)
+        return
+
+    cached = get_cached_public_help_point(parsed_id)
+    if cached is not None:
+        render_help_point_detail(cached.point, cached.categories, create_commitment)
+        if not cached.stale:
+            return
+
+        async def refresh_stale() -> None:
+            try:
+                await asyncio.wait_for(
+                    asyncio.to_thread(refresh_public_help_point, parsed_id),
+                    timeout=DETAIL_LOAD_TIMEOUT_SECONDS,
+                )
+            except Exception:
+                logger.exception("background public help point refresh failed")
+
+        ui.timer(0, refresh_stale, once=True)
+        return
+
+    container = ui.column().classes("w-full")
+    with container:
+        ui.label("Cargando punto de ayuda…")
+
+    async def load_cold() -> None:
+        try:
+            refreshed = await asyncio.wait_for(
+                asyncio.to_thread(refresh_public_help_point, parsed_id),
+                timeout=DETAIL_LOAD_TIMEOUT_SECONDS,
+            )
+        except Exception:
+            logger.exception("public help point load failed")
+            refreshed = None
+        container.clear()
+        with container:
+            if refreshed is None:
+                render_help_point_detail(None, {}, create_commitment)
+            else:
+                render_help_point_detail(
+                    refreshed.point,
+                    refreshed.categories,
+                    create_commitment,
+                )
+
+    ui.timer(0, load_cold, once=True)
 
 
 def render_commitment_control(

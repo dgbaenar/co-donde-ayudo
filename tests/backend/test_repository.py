@@ -28,6 +28,9 @@ class ScalarResult:
     def all(self) -> list[object]:
         return self._rows
 
+    def first(self) -> object | None:
+        return self._rows[0] if self._rows else None
+
 
 class Session:
     def __init__(self) -> None:
@@ -38,6 +41,10 @@ class Session:
         self.locked_for_update: dict[UUID, bool] = {}
         self.help_point_rows: list[HelpPointRow] = []
         self.scalars_statement = None
+        self.scalar_statement = None
+        self.scalar_statements = []
+        self.scalar_result = 0
+        self.scalar_results: list[object] = []
 
     def __enter__(self):
         return self
@@ -72,6 +79,13 @@ class Session:
     def scalars(self, statement):
         self.scalars_statement = statement
         return ScalarResult(self.help_point_rows)
+
+    def scalar(self, statement):
+        self.scalar_statement = statement
+        self.scalar_statements.append(statement)
+        if self.scalar_results:
+            return self.scalar_results.pop(0)
+        return self.scalar_result
 
 
 class Factory:
@@ -526,6 +540,115 @@ class RepositoryTests(unittest.TestCase):
             str(session.scalars_statement),
         )
         self.assertEqual([p.id for p in result], [newer_row.id, older_row.id])
+
+    def test_get_active_help_point_by_id_filters_by_uuid_and_eager_loads_relationships(
+        self,
+    ) -> None:
+        session = Session()
+        source = point()
+        session.help_point_rows = [PostgresHelpPointRepository._row_from_point(source)]
+
+        result = PostgresHelpPointRepository(Factory(session)).get_active_help_point_by_id(
+            source.id
+        )
+
+        self.assertEqual(result.id, source.id)
+        statement = str(session.scalars_statement)
+        self.assertIn("help_points.id =", statement)
+        self.assertIn("help_points.activo IS true", statement)
+        option_paths = {str(option.path) for option in session.scalars_statement._with_options}
+        self.assertTrue(any("HelpPointRow.affected_areas" in path for path in option_paths))
+        self.assertTrue(any("HelpPointRow.locations" in path for path in option_paths))
+        self.assertTrue(
+            any(
+                "HelpPointRow.needs" in path and "NeedRow.commitments" in path
+                for path in option_paths
+            )
+        )
+
+    def test_get_active_help_point_by_id_returns_none_when_missing(self) -> None:
+        session = Session()
+
+        result = PostgresHelpPointRepository(Factory(session)).get_active_help_point_by_id(
+            uuid4()
+        )
+
+        self.assertIsNone(result)
+
+    def test_count_active_help_points_counts_only_active_rows(self) -> None:
+        session = Session()
+        snapshot = datetime(2026, 8, 13, tzinfo=UTC)
+        session.scalar_results = [snapshot, 9]
+
+        result = PostgresHelpPointRepository(
+            Factory(session)
+        ).open_active_help_points_snapshot()
+
+        self.assertEqual(result, (snapshot, 9))
+        self.assertIn("now()", str(session.scalar_statements[0]))
+        statement = str(session.scalar_statement)
+        self.assertIn("count(help_points.id)", statement)
+        self.assertIn("help_points.activo IS true", statement)
+        self.assertIn("help_points.created_at <=", statement)
+
+    def test_list_active_help_points_page_uses_stable_cursor_and_eager_loading(self) -> None:
+        session = Session()
+        first_id = UUID("00000000-0000-0000-0000-000000000003")
+        second_id = UUID("00000000-0000-0000-0000-000000000002")
+        first = replace(point(), id=first_id)
+        second = replace(point(), id=second_id)
+        session.help_point_rows = [
+            PostgresHelpPointRepository._row_from_point(first),
+            PostgresHelpPointRepository._row_from_point(second),
+        ]
+        cursor_created_at = datetime(2026, 8, 1, tzinfo=UTC)
+        cursor_id = UUID("00000000-0000-0000-0000-000000000004")
+
+        result = PostgresHelpPointRepository(Factory(session)).list_active_help_points_page(
+            snapshot_created_at=datetime(2026, 8, 13, tzinfo=UTC),
+            before_created_at=cursor_created_at,
+            before_id=cursor_id,
+            limit=2,
+        )
+
+        self.assertEqual([restored.id for restored in result], [first_id, second_id])
+        statement = str(session.scalars_statement)
+        self.assertIn("help_points.activo IS true", statement)
+        self.assertIn("help_points.created_at <=", statement)
+        self.assertIn("help_points.created_at <", statement)
+        self.assertIn("help_points.created_at =", statement)
+        self.assertIn("help_points.id <", statement)
+        self.assertIn(
+            "ORDER BY help_points.created_at DESC, help_points.id DESC",
+            statement,
+        )
+        self.assertIn("LIMIT", statement)
+        option_paths = {str(option.path) for option in session.scalars_statement._with_options}
+        self.assertTrue(any("HelpPointRow.affected_areas" in path for path in option_paths))
+        self.assertTrue(any("HelpPointRow.locations" in path for path in option_paths))
+        self.assertTrue(
+            any(
+                "HelpPointRow.needs" in path and "NeedRow.commitments" in path
+                for path in option_paths
+            )
+        )
+
+    def test_list_active_help_points_page_without_cursor_keeps_newest_first_order(self) -> None:
+        session = Session()
+
+        PostgresHelpPointRepository(Factory(session)).list_active_help_points_page(
+            snapshot_created_at=datetime(2026, 8, 13, tzinfo=UTC),
+            before_created_at=None,
+            before_id=None,
+            limit=6,
+        )
+
+        statement = str(session.scalars_statement)
+        self.assertNotIn("help_points.id <", statement)
+        self.assertIn(
+            "ORDER BY help_points.created_at DESC, help_points.id DESC",
+            statement,
+        )
 
     def test_create_commitment_on_help_on_the_way_row_keeps_status(self) -> None:
         session = Session()

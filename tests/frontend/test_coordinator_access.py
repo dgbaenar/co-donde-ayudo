@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
@@ -237,8 +238,17 @@ class CoordinatorAccessRouteTests(unittest.TestCase):
             return None
 
         self.dependencies = {
-            "list_public_help_points": lambda: (),
+            "open_active_help_points_snapshot": lambda: (
+                datetime(2026, 8, 13, tzinfo=UTC),
+                0,
+            ),
+            "list_active_help_points_page": lambda **_kwargs: (),
             "list_active_categories": lambda: {},
+            "get_cached_public_home": lambda: None,
+            "begin_public_home_refresh": lambda: "token",
+            "finish_public_home_refresh": lambda *_args: True,
+            "abort_public_home_refresh": lambda _token: None,
+            "wait_for_cached_public_home": lambda **_kwargs: None,
             "list_departments": lambda: ("Valle del Cauca",),
             "list_localities": lambda _department: ("Cali",),
             "list_affected_departments": lambda: ("Valle del Cauca",),
@@ -257,7 +267,8 @@ class CoordinatorAccessRouteTests(unittest.TestCase):
             "update_help_point_locations": lambda *_args: object(),
             "update_help_point_affected_areas": lambda *_args: object(),
             "authorize_coordinator_access": lambda _key: False,
-            "get_public_help_point": lambda _point_id: None,
+            "get_cached_public_help_point": lambda _point_id: None,
+            "refresh_public_help_point": lambda _point_id: None,
             "is_database_ready": lambda: True,
             "create_commitment": lambda *_args: object(),
         }
@@ -332,6 +343,18 @@ class CoordinatorAccessRouteTests(unittest.TestCase):
             {},
             self.dependencies["list_affected_departments"],
             self.dependencies["list_localities"],
+            list_active_categories=self.dependencies["list_active_categories"],
+            open_public_help_points_snapshot=self.dependencies[
+                "open_active_help_points_snapshot"
+            ],
+            list_public_help_points_page=self.dependencies[
+                "list_active_help_points_page"
+            ],
+            get_cached_public_home=self.dependencies["get_cached_public_home"],
+            begin_public_home_refresh=self.dependencies["begin_public_home_refresh"],
+            finish_public_home_refresh=self.dependencies["finish_public_home_refresh"],
+            abort_public_home_refresh=self.dependencies["abort_public_home_refresh"],
+            wait_for_cached_public_home=self.dependencies["wait_for_cached_public_home"],
         )
         render_manage.assert_called_once()
         self.assertEqual(self.fake_ui.navigate.paths, [])
