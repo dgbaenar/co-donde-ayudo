@@ -22,6 +22,7 @@ from frontend.pages.home import (
     filter_public_help_points,
     latest_activity_text,
     location_filter_options,
+    matches_search_query,
 )
 
 
@@ -149,6 +150,7 @@ class RecordingUi:
     def element(self, *args, **kwargs): return self._record("element", *args, **kwargs)
     def label(self, *args, **kwargs): return self._record("label", *args, **kwargs)
     def select(self, *args, **kwargs): return self._record("select", *args, **kwargs)
+    def input(self, *args, **kwargs): return self._record("input", *args, **kwargs)
     def button(self, *args, **kwargs): return self._record("button", *args, **kwargs)
     def link(self, *args, **kwargs): return self._record("link", *args, **kwargs)
     def icon(self, *args, **kwargs): return self._record("icon", *args, **kwargs)
@@ -322,6 +324,42 @@ class PublicHelpPointFilteringTests(unittest.TestCase):
             ),
             (self.cali_water,),
         )
+
+    def test_empty_search_query_matches_every_point(self) -> None:
+        category_names = {value: key for key, value in self.categories.items()}
+        self.assertTrue(matches_search_query(self.cali_water, category_names, ""))
+        self.assertTrue(matches_search_query(self.cali_water, category_names, "   "))
+
+    def test_search_query_matches_name_case_insensitively(self) -> None:
+        category_names = {value: key for key, value in self.categories.items()}
+        self.assertTrue(matches_search_query(self.cali_water, category_names, "parque"))
+        self.assertTrue(
+            matches_search_query(self.cali_water, category_names, "PARQUE CENTRAL")
+        )
+        self.assertFalse(
+            matches_search_query(self.medellin_blanket, category_names, "parque")
+        )
+
+    def test_search_query_matches_description(self) -> None:
+        category_names = {value: key for key, value in self.categories.items()}
+        self.assertTrue(matches_search_query(self.cali_water, category_names, "apoyo"))
+
+    def test_search_query_matches_need_category_name(self) -> None:
+        category_names = {value: key for key, value in self.categories.items()}
+        self.assertTrue(matches_search_query(self.cali_water, category_names, "agua"))
+        self.assertFalse(
+            matches_search_query(self.medellin_blanket, category_names, "agua")
+        )
+        self.assertTrue(
+            matches_search_query(self.medellin_blanket, category_names, "cobijas")
+        )
+
+    def test_search_query_with_no_match_returns_false(self) -> None:
+        category_names = {value: key for key, value in self.categories.items()}
+        self.assertFalse(
+            matches_search_query(self.cali_water, category_names, "xyz-no-existe")
+        )
+
 
 class AffectedAreaTextTests(unittest.TestCase):
     @staticmethod
@@ -534,6 +572,35 @@ class HomeResponsivePresentationTests(unittest.TestCase):
             self.assertIn("Respuesta al terremoto de Chocó", visible_labels)
             self.assertIn("Terremoto del 10 de agosto de 2026", visible_labels)
             self.assertIn(emergency_explanation, visible_labels)
+        safety_warning = (
+            "Verifica que la iniciativa siga activa y confirma la identidad "
+            "de la persona coordinadora antes de compartir dinero, datos "
+            "personales o comprometerte a ayudar."
+        )
+        with self.subTest("safety warning before trusting an initiative"):
+            self.assertIn("Antes de ayudar", visible_labels)
+            self.assertIn(safety_warning, visible_labels)
+
+            def contains(parent, target):
+                return any(
+                    child is target or contains(child, target)
+                    for child in parent.children
+                )
+
+            warning_label = next(
+                e
+                for e in fake_ui.elements
+                if e.kind == "label" and e.args == ("Antes de ayudar",)
+            )
+            warning_card = next(
+                element
+                for element in fake_ui.elements
+                if element.kind == "column"
+                and "bg-white" in element.classes_value
+                and contains(element, warning_label)
+            )
+            self.assertIn("border-l-4", warning_card.classes_value)
+            self.assertIn("border-amber-500", warning_card.classes_value)
         self.assertTrue(any(element.kind == "label" and element.args == ("Explora el mapa o revisa la lista de puntos activos y ayudemos juntos a Colombia.",) for element in fake_ui.elements))
         with self.subTest("results heading with count badge, not a plain dashed string"):
             self.assertTrue(any(element.kind == "label" and element.args == ("Puntos que necesitan ayuda",) for element in fake_ui.elements))
@@ -645,6 +712,29 @@ class HomeResponsivePresentationTests(unittest.TestCase):
             )
             self.assertIn("shadow-sm", filter_panel.classes_value)
             self.assertIn("rounded-2xl", filter_panel.classes_value)
+        with self.subTest("location filter caption clarifies it targets aid destination"):
+            location_caption = next(
+                element
+                for element in fake_ui.elements
+                if element.kind == "label"
+                and element.args
+                == (
+                    "Busca por el departamento o ciudad hacia donde se "
+                    "dirige la ayuda.",
+                )
+            )
+            self.assertIn("text-xs", location_caption.classes_value)
+            self.assertIn("text-slate-500", location_caption.classes_value)
+            self.assertTrue(has_descendant(filter_panel, location_caption))
+            department_select = next(
+                element
+                for element in fake_ui.elements
+                if element.kind == "select" and element.kwargs.get("label") == "Departamento"
+            )
+            self.assertLess(
+                fake_ui.elements.index(location_caption),
+                fake_ui.elements.index(department_select),
+            )
         with self.subTest("filter panel is the scroll target for the hero CTA"):
             self.assertIn("id=resultados", filter_panel.props_value)
         self.assertFalse(any("bg-emerald-50" in element.classes_value for element in fake_ui.elements))
@@ -1044,6 +1134,37 @@ class HomeResponsivePresentationTests(unittest.TestCase):
             home.ui = original_ui
 
         self.assertEqual(rendered_map_points[-1], (donation_point,))
+
+    def test_search_query_refreshes_map_and_results_to_matching_points(self) -> None:
+        fake_ui = RecordingUi()
+        original_ui = home.ui
+        home.ui = fake_ui
+        rendered_map_points = []
+        try:
+            with patch.object(
+                home,
+                "render_help_point_map",
+                side_effect=lambda points, _categories: rendered_map_points.append(tuple(points)),
+            ):
+                points_test = PublicHelpPointFilteringTests()
+                points_test.setUp()
+                home.render_home(
+                    points_test.points,
+                    points_test.categories,
+                    lambda: AFFECTED_DEPARTMENTS,
+                    list_localities,
+                )
+                search_input = next(
+                    element
+                    for element in fake_ui.elements
+                    if element.kind == "input"
+                )
+                search_input.value = "parque"
+                search_input.on_change()
+        finally:
+            home.ui = original_ui
+
+        self.assertEqual(rendered_map_points[-1], (points_test.cali_water,))
 
     def test_activity_indicator_reflects_only_the_currently_filtered_points(self) -> None:
         category_id = uuid4()
