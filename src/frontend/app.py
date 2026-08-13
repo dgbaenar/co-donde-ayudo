@@ -80,7 +80,7 @@ def create_app(
         "overflow-y: auto !important; }",
         shared=True,
     )
-    app.colors(primary="#047857")
+    app.colors(primary="#047857", secondary="#003893")
 
     @ui.page("/", title="¿Dónde ayudo?")
     def home_page() -> None:

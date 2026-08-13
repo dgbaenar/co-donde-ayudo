@@ -24,6 +24,8 @@ class HelpPointCategory(str, Enum):
     COMMUNITY_FOOD = "Alimentación Comunitaria"
     VOLUNTEERING = "Voluntariado"
     BLOOD_DONATION = "Donación de sangre"
+    MONEY_DONATION = "Donación de dinero"
+    PET_ASSISTANCE = "Ayuda para mascotas"
 
 
 def validate_required(value: str, field: str, maximum: int) -> None:

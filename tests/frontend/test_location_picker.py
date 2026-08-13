@@ -34,6 +34,7 @@ class RecordingLeaflet(RecordingElement):
         self.handlers = {}
         self.markers = []
         self.map_method_calls = []
+        self.layer_calls = []
 
     def on(self, event_name, handler):
         self.handlers[event_name] = handler
@@ -46,6 +47,12 @@ class RecordingLeaflet(RecordingElement):
 
     def run_map_method(self, name, *args):
         self.map_method_calls.append((name, args))
+
+    def clear_layers(self):
+        self.layer_calls.append(("clear_layers",))
+
+    def tile_layer(self, *, url_template, options):
+        self.layer_calls.append(("tile_layer", url_template, options))
 
 
 class RecordingUi:
@@ -74,6 +81,14 @@ class LocationPickerTests(unittest.TestCase):
         self.original_ui = location_picker.ui
         location_picker.ui = self.fake_ui
         self.addCleanup(setattr, location_picker, "ui", self.original_ui)
+
+    def test_uses_a_modern_light_basemap_instead_of_the_default_osm_tiles(self) -> None:
+        location_picker.render_location_picker()
+
+        self.assertEqual(self.fake_ui.map.layer_calls[0], ("clear_layers",))
+        _, url_template, options = self.fake_ui.map.layer_calls[1]
+        self.assertIn("cartocdn.com", url_template)
+        self.assertIn("CARTO", options["attribution"])
 
     def test_click_stores_float_coordinates_and_moves_one_marker(self) -> None:
         selection = location_picker.render_location_picker()

@@ -14,12 +14,14 @@ from backend.domain.models import (
     NeedStatus,
     PublicHelpPoint,
 )
+from frontend.components.help_point_map import category_pin_color, status_line
 from frontend.pages import home
 from frontend.pages.home import (
     affected_area_text,
+    category_badge_classes,
     filter_public_help_points,
+    latest_activity_text,
     location_filter_options,
-    status_line,
 )
 
 
@@ -77,6 +79,21 @@ def list_localities(department: str) -> tuple[str, ...]:
     }.get(department, ())
 
 
+def click_category_chip(fake_ui, label_text: str) -> None:
+    """Simulate clicking a category chip by its visible label text."""
+    chip_label = next(
+        element
+        for element in fake_ui.elements
+        if element.kind == "label" and element.args == (label_text,)
+    )
+    chip_row = next(
+        element
+        for element in fake_ui.elements
+        if element.kind == "row" and chip_label in element.children
+    )
+    chip_row.handlers["click"]()
+
+
 class RecordingElement:
     def __init__(self, owner, kind, *args, **kwargs):
         self.owner = owner
@@ -91,6 +108,7 @@ class RecordingElement:
         self.enabled = True
         self.enable_calls = 0
         self.disable_calls = 0
+        self.handlers = {}
 
     def __enter__(self): self.owner.stack.append(self); return self
     def __exit__(self, *_args): self.owner.stack.pop(); return False
@@ -99,6 +117,9 @@ class RecordingElement:
         self.props_value = value
         if "disable" in value.split():
             self.enabled = False
+        return self
+    def on(self, event_name, handler, *_args, **_kwargs):
+        self.handlers[event_name] = handler
         return self
     def enable(self): self.enable_calls += 1; self.enabled = True
     def disable(self): self.disable_calls += 1; self.enabled = False
@@ -125,6 +146,7 @@ class RecordingUi:
     def column(self, *args, **kwargs): return self._record("column", *args, **kwargs)
     def row(self, *args, **kwargs): return self._record("row", *args, **kwargs)
     def grid(self, *args, **kwargs): return self._record("grid", *args, **kwargs)
+    def element(self, *args, **kwargs): return self._record("element", *args, **kwargs)
     def label(self, *args, **kwargs): return self._record("label", *args, **kwargs)
     def select(self, *args, **kwargs): return self._record("select", *args, **kwargs)
     def button(self, *args, **kwargs): return self._record("button", *args, **kwargs)
@@ -365,6 +387,92 @@ class AffectedAreaTextTests(unittest.TestCase):
         )
 
 
+class LatestActivityTextTests(unittest.TestCase):
+    @staticmethod
+    def point(*, updated_at: datetime) -> PublicHelpPoint:
+        return PublicHelpPoint(category=HelpPointCategory.RESCUE_OPERATIONS,
+            id=uuid4(),
+            name="Parque Central",
+            description="Se requiere apoyo.",
+            locations=(
+                HelpPointLocation(
+                    id=uuid4(),
+                    address="Calle 5 # 10-20",
+                    city="Cali",
+                    department="Valle del Cauca",
+                    latitude=3.0,
+                    longitude=-76.0,
+                ),
+            ),
+            affected_areas=(),
+            coordinator_name="Ana",
+            coordinator_contact="Contacto",
+            active=True,
+            needs=(),
+            updated_at=updated_at,
+        )
+
+    def test_returns_none_for_no_points(self) -> None:
+        self.assertIsNone(latest_activity_text(()))
+
+    def test_uses_the_most_recently_updated_point_among_several(self) -> None:
+        older = self.point(updated_at=datetime(2020, 1, 1, 10, 30, tzinfo=UTC))
+        newer = self.point(updated_at=datetime(2020, 6, 1, 8, 0, tzinfo=UTC))
+
+        self.assertEqual(
+            latest_activity_text((older, newer)),
+            "Última actividad: el 1 jun 2020, 08:00",
+        )
+
+    def test_uses_relative_time_when_recent(self) -> None:
+        recent = self.point(updated_at=datetime.now(UTC))
+
+        self.assertEqual(
+            latest_activity_text((recent,)), "Última actividad: hace menos de un minuto"
+        )
+
+
+class NeedsPreviewTextTests(unittest.TestCase):
+    @staticmethod
+    def need(status: NeedStatus) -> Need:
+        return Need(id=uuid4(), category_id=uuid4(), status=status)
+
+    def test_returns_none_for_no_needs(self) -> None:
+        self.assertIsNone(home.needs_preview_text((), {}))
+
+    def test_shows_the_most_urgent_names_first_up_to_the_limit(self) -> None:
+        covered = self.need(NeedStatus.COVERED)
+        on_the_way = self.need(NeedStatus.HELP_ON_THE_WAY)
+        needs_help = self.need(NeedStatus.NEEDS_HELP)
+        category_names = {
+            covered.category_id: "Cobijas",
+            on_the_way.category_id: "Comida",
+            needs_help.category_id: "Agua",
+        }
+
+        self.assertEqual(
+            home.needs_preview_text((covered, on_the_way, needs_help), category_names),
+            "Necesita: Agua, Comida +1 más",
+        )
+
+    def test_omits_remainder_suffix_when_within_the_limit(self) -> None:
+        needs_help = self.need(NeedStatus.NEEDS_HELP)
+        category_names = {needs_help.category_id: "Agua"}
+
+        self.assertEqual(
+            home.needs_preview_text((needs_help,), category_names),
+            "Necesita: Agua",
+        )
+
+    def test_falls_back_to_generic_name_for_unknown_category(self) -> None:
+        needs_help = self.need(NeedStatus.NEEDS_HELP)
+
+        self.assertEqual(
+            home.needs_preview_text((needs_help,), {}),
+            "Necesita: Necesidad",
+        )
+
+
 class NeedStatusTextTests(unittest.TestCase):
     def test_uses_the_exact_public_text_for_each_need_status(self) -> None:
         self.assertEqual(status_line(NeedStatus.NEEDS_HELP, "Agua"), "🔴 Agua")
@@ -404,7 +512,8 @@ class HomeResponsivePresentationTests(unittest.TestCase):
         finally:
             home.ui = original_ui
 
-        self.assertTrue(any(element.kind == "link" and element.args == ("Crear nuevo punto de ayuda o recolección", "/crear") for element in fake_ui.elements))
+        self.assertTrue(any(element.kind == "link" and element.args == ("Crear iniciativa", "/crear") for element in fake_ui.elements))
+        self.assertTrue(any(element.kind == "link" and element.args == ("Encontrar cómo ayudar", "#resultados") for element in fake_ui.elements))
         self.assertTrue(any(element.kind == "label" and element.args == ("Todavía no hay puntos de ayuda activos.",) for element in fake_ui.elements))
         self.assertTrue(any(element.kind == "label" and element.args == ("Filtros",) for element in fake_ui.elements))
         visible_labels = [
@@ -423,15 +532,54 @@ class HomeResponsivePresentationTests(unittest.TestCase):
         with self.subTest("earthquake context"):
             self.assertIn("Emergencia activa", visible_labels)
             self.assertIn("Respuesta al terremoto de Chocó", visible_labels)
+            self.assertIn("Terremoto del 10 de agosto de 2026", visible_labels)
             self.assertIn(emergency_explanation, visible_labels)
-        self.assertTrue(any(element.kind == "label" and element.args == ("Explora el mapa o revisa la lista de puntos activos.",) for element in fake_ui.elements))
-        self.assertTrue(any(element.kind == "label" and element.args == ("Puntos que necesitan ayuda — 0 resultados",) for element in fake_ui.elements))
+        self.assertTrue(any(element.kind == "label" and element.args == ("Explora el mapa o revisa la lista de puntos activos y ayudemos juntos a Colombia.",) for element in fake_ui.elements))
+        with self.subTest("results heading with count badge, not a plain dashed string"):
+            self.assertTrue(any(element.kind == "label" and element.args == ("Puntos que necesitan ayuda",) for element in fake_ui.elements))
+            self.assertTrue(any(element.kind == "label" and element.args == ("0 resultados",) for element in fake_ui.elements))
+            self.assertFalse(any(element.kind == "label" and element.args and "—" in element.args[0] for element in fake_ui.elements))
         self.assertEqual(rendered_map_points, [()])
         selects = [element for element in fake_ui.elements if element.kind == "select"]
         self.assertEqual(
             {element.kwargs["label"] for element in selects},
-            {"Ciudad / Municipio", "Departamento", "Categoría del punto"},
+            {"Ciudad / Municipio", "Departamento"},
         )
+        with self.subTest("category filter is a chip row, not a select"):
+            category_chip_labels = {
+                element.args[0]
+                for element in fake_ui.elements
+                if element.kind == "label" and element.args and element.args[0] == "Todas las categorías"
+            }
+            self.assertEqual(category_chip_labels, {"Todas las categorías"})
+            for category in HelpPointCategory:
+                self.assertTrue(
+                    any(
+                        element.kind == "label" and element.args == (category.value,)
+                        for element in fake_ui.elements
+                    )
+                )
+        with self.subTest("chips scroll horizontally on mobile, wrap on larger screens"):
+            todas_label = next(
+                element
+                for element in fake_ui.elements
+                if element.kind == "label" and element.args == ("Todas las categorías",)
+            )
+            todas_chip_row = next(
+                element
+                for element in fake_ui.elements
+                if element.kind == "row" and todas_label in element.children
+            )
+            chips_container = next(
+                element
+                for element in fake_ui.elements
+                if element.kind == "row" and todas_chip_row in element.children
+            )
+            self.assertIn("flex-nowrap", chips_container.classes_value)
+            self.assertIn("overflow-x-auto", chips_container.classes_value)
+            self.assertIn("sm:flex-wrap", chips_container.classes_value)
+            self.assertIn("sm:overflow-visible", chips_container.classes_value)
+            self.assertIn("shrink-0", todas_chip_row.classes_value)
         department = next(element for element in selects if element.kwargs["label"] == "Departamento")
         city = next(element for element in selects if element.kwargs["label"] == "Ciudad / Municipio")
         self.assertEqual(tuple(department.options)[1:], AFFECTED_DEPARTMENTS)
@@ -445,14 +593,15 @@ class HomeResponsivePresentationTests(unittest.TestCase):
         self.assertNotIn("disable", city.props_value.split())
         self.assertEqual(city.disable_calls, 1)
         self.assertTrue(all("w-full" in element.classes_value for element in selects))
-        with self.subTest("white rounded selectors"):
-            self.assertTrue(all("bg-white" in element.classes_value for element in selects))
-            self.assertTrue(all("rounded-lg" in element.classes_value for element in selects))
-        self.assertTrue(all("outlined" in element.props_value for element in selects))
-        self.assertTrue(all("dense" in element.props_value for element in selects))
+        with self.subTest("filled rounded selectors"):
+            self.assertTrue(all("filled" in element.props_value for element in selects))
+            self.assertTrue(all("rounded" in element.props_value for element in selects))
+        self.assertFalse(any("dense" in element.props_value for element in selects))
         for select in selects:
             with self.subTest(select=select.kwargs["label"]):
                 self.assertIn("behavior=menu", select.props_value)
+                self.assertIn("transition-show=none", select.props_value)
+                self.assertIn("transition-hide=none", select.props_value)
                 self.assertIn(
                     'popup-content-style="max-height: 40vh !important; overflow-y: auto"',
                     select.props_value,
@@ -465,7 +614,8 @@ class HomeResponsivePresentationTests(unittest.TestCase):
         self.assertFalse(any(element.kind == "button" and element.args == ("Aplicar filtros",) for element in fake_ui.elements))
         grid = next(element for element in fake_ui.elements if element.kind == "grid")
         self.assertNotIn("columns", grid.kwargs)
-        self.assertIn("lg:grid-cols-[3fr_2fr]", grid.classes_value)
+        with self.subTest("map is a fixed-width column, list gets the remaining space"):
+            self.assertIn("lg:grid-cols-[380px_1fr]", grid.classes_value)
         self.assertTrue(any(element.kind == "column" and "min-h-screen" in element.classes_value for element in fake_ui.elements))
         self.assertTrue(any(element.kind == "column" and "max-w-7xl" in element.classes_value for element in fake_ui.elements))
         self.assertTrue(any(element.kind == "column" and "bg-white" in element.classes_value for element in fake_ui.elements))
@@ -485,19 +635,37 @@ class HomeResponsivePresentationTests(unittest.TestCase):
             element
             for element in fake_ui.elements
             if element.kind == "column"
-            and "bg-slate-100" in element.classes_value
+            and "bg-white" in element.classes_value
             and has_descendant(element, filter_heading)
         )
-        with self.subTest("borderless slate filter panel"):
+        with self.subTest("borderless white filter panel"):
             self.assertNotIn("border", filter_panel.classes_value.split())
             self.assertFalse(
                 any(token.startswith("border-") for token in filter_panel.classes_value.split())
             )
+            self.assertIn("shadow-sm", filter_panel.classes_value)
+            self.assertIn("rounded-2xl", filter_panel.classes_value)
+        with self.subTest("filter panel is the scroll target for the hero CTA"):
+            self.assertIn("id=resultados", filter_panel.props_value)
         self.assertFalse(any("bg-emerald-50" in element.classes_value for element in fake_ui.elements))
         self.assertTrue(all("color=blue-grey-9" in element.props_value for element in selects))
         self.assertTrue(any(element.kind == "icon" and element.args == ("location_on",) for element in fake_ui.elements))
-        cta = next(element for element in fake_ui.elements if element.kind == "link" and element.args == ("Crear nuevo punto de ayuda o recolección", "/crear"))
-        self.assertIn("bg-emerald-700", cta.classes_value)
+        find_cta = next(element for element in fake_ui.elements if element.kind == "link" and element.args == ("Encontrar cómo ayudar", "#resultados"))
+        with self.subTest("primary hero CTA is finding help"):
+            self.assertIn("bg-[#003893]", find_cta.classes_value)
+        create_cta = next(element for element in fake_ui.elements if element.kind == "link" and element.args == ("Crear iniciativa", "/crear"))
+        with self.subTest("both hero CTAs share the same solid brand color"):
+            self.assertIn("bg-[#003893]", create_cta.classes_value)
+            self.assertIn("text-white", create_cta.classes_value)
+        with self.subTest("hero CTAs share the same fixed width"):
+            find_width = [
+                token for token in find_cta.classes_value.split() if token.startswith("sm:w-")
+            ]
+            create_width = [
+                token for token in create_cta.classes_value.split() if token.startswith("sm:w-")
+            ]
+            self.assertEqual(find_width, create_width)
+            self.assertNotEqual(find_width, ["sm:w-auto"])
         title = next(
             element
             for element in fake_ui.elements
@@ -508,44 +676,79 @@ class HomeResponsivePresentationTests(unittest.TestCase):
             for element in fake_ui.elements
             if element.kind == "icon" and element.args == ("location_on",)
         )
-        header = next(
-            (
+        with self.subTest("Colombian flag stripe above everything else"):
+            flag_stripe_colors = ("#FCD116", "#003893", "#CE1126")
+            stripe_elements = [
                 element
                 for element in fake_ui.elements
-                if element.kind == "row" and cta in element.children
+                if element.kind == "row"
+                and "h-1.5" in element.classes_value
+                and any(color in element.classes_value for color in flag_stripe_colors)
+            ]
+            self.assertEqual(len(stripe_elements), 3)
+            for color, element in zip(flag_stripe_colors, stripe_elements):
+                self.assertIn(color, element.classes_value)
+                self.assertIn("flex-1", element.classes_value)
+            self.assertLess(
+                max(fake_ui.elements.index(element) for element in stripe_elements),
+                fake_ui.elements.index(title),
+            )
+
+        def has_descendant_of(parent, target):
+            return any(
+                child is target or has_descendant_of(child, target)
+                for child in parent.children
+            )
+
+        hero = next(
+            element
+            for element in fake_ui.elements
+            if element.kind == "column"
+            and "bg-white" in element.classes_value
+            and "border-b" in element.classes_value
+            and has_descendant_of(element, title)
+        )
+        brand = next(
+            (
+                element
+                for element in hero.children
+                if element.kind == "column" and pin in element.children
             ),
             None,
         )
-        with self.subTest("brand topology"):
-            self.assertIsNotNone(header)
-            brand = next(
-                (
-                    element
-                    for element in header.children
-                    if element.kind == "row" and pin in element.children
-                ),
-                None,
-            )
+        with self.subTest("centered hero topology"):
+            self.assertIn("items-center", hero.classes_value)
+            self.assertIn("text-center", hero.classes_value)
             self.assertIsNotNone(brand)
             self.assertIn(title, brand.children)
-            self.assertIn(cta, header.children)
-            self.assertIn("flex-wrap", header.classes_value)
-            self.assertIn("sm:flex-nowrap", header.classes_value)
-            self.assertIn("flex-1", brand.classes_value)
-            self.assertIn("min-w-0", brand.classes_value)
-            self.assertIn("flex-nowrap", brand.classes_value)
-            self.assertIn("whitespace-nowrap", title.classes_value)
-            self.assertIn("text-lg", title.classes_value)
-            self.assertIn("sm:text-2xl", title.classes_value)
-            self.assertIn("shrink-0", cta.classes_value)
-            self.assertIn("w-full", cta.classes_value)
-            self.assertIn("sm:w-auto", cta.classes_value)
-            self.assertIn("min-h-[48px]", cta.classes_value)
-            self.assertIn("text-base", cta.classes_value)
-            self.assertIn("px-4", cta.classes_value)
-            self.assertIn("bg-emerald-700", cta.classes_value)
-            self.assertIn("text-white", cta.classes_value)
-            self.assertIn("no-underline", cta.classes_value)
+            self.assertIn("items-center", brand.classes_value)
+            self.assertLess(brand.children.index(pin), brand.children.index(title))
+            cta_row = next(
+                element
+                for element in hero.children
+                if element.kind == "row"
+                and find_cta in element.children
+                and create_cta in element.children
+            )
+            self.assertLess(
+                cta_row.children.index(find_cta), cta_row.children.index(create_cta)
+            )
+            self.assertIn("text-2xl", title.classes_value)
+            self.assertIn("sm:text-4xl", title.classes_value)
+            self.assertIn("font-bold", title.classes_value)
+            for cta in (find_cta, create_cta):
+                self.assertIn("min-h-[48px]", cta.classes_value)
+                self.assertIn("text-base", cta.classes_value)
+                self.assertIn("px-6", cta.classes_value)
+                self.assertIn("no-underline", cta.classes_value)
+                self.assertIn("rounded-2xl", cta.classes_value)
+            self.assertIn("bg-[#003893]", find_cta.classes_value)
+            self.assertIn("text-white", find_cta.classes_value)
+        with self.subTest("Colombian flag header icon"):
+            self.assertIn("FCD116", pin.classes_value)
+            self.assertIn("003893", pin.classes_value)
+            self.assertIn("CE1126", pin.classes_value)
+            self.assertIn("text-white", pin.classes_value)
         emergency_title = next(
             (
                 element
@@ -567,9 +770,26 @@ class HomeResponsivePresentationTests(unittest.TestCase):
             self.assertIsNotNone(emergency_title)
             self.assertIsNotNone(context_panel)
             self.assertIn("rounded-2xl", context_panel.classes_value)
-            self.assertIn("bg-slate-100", context_panel.classes_value)
+            self.assertIn("bg-white", context_panel.classes_value)
+            self.assertIn("shadow-sm", context_panel.classes_value)
             self.assertIn("p-4", context_panel.classes_value)
-        if context_panel is not None:
+            self.assertIn("border-l-4", context_panel.classes_value)
+            self.assertIn("border-red-600", context_panel.classes_value)
+        description_label = next(
+            element
+            for element in fake_ui.elements
+            if element.kind == "label"
+            and element.args == ("Explora el mapa o revisa la lista de puntos activos y ayudemos juntos a Colombia.",)
+        )
+        with self.subTest("section order: header, description, emergency, filters"):
+            self.assertLess(
+                fake_ui.elements.index(title),
+                fake_ui.elements.index(description_label),
+            )
+            self.assertLess(
+                fake_ui.elements.index(description_label),
+                fake_ui.elements.index(context_panel),
+            )
             self.assertLess(
                 fake_ui.elements.index(context_panel),
                 fake_ui.elements.index(filter_heading),
@@ -643,22 +863,62 @@ class HomeResponsivePresentationTests(unittest.TestCase):
         self.assertEqual(city.options, {"": "Selecciona primero un departamento"})
         self.assertEqual(tuple(department.options)[1:], AFFECTED_DEPARTMENTS)
         labels = [element.args[0] for element in fake_ui.elements if element.kind == "label"]
-        self.assertIn("Ayuda destinada a: Roldanillo, Valle del Cauca", labels)
-        self.assertIn(
-            "Recibe ayuda en: Calle 5 # 10-20, Cali, Valle del Cauca",
-            labels,
-        )
+        self.assertIn("📍 Roldanillo, Valle del Cauca", labels)
         self.assertIn("Labores de rescate", labels)
         self.assertIn("Publicado el 12 ago 2026", labels)
-        self.assertIn("Actualizado el 1 ene 2020, 10:30", labels)
-        category_select = next(
-            element
-            for element in fake_ui.elements
-            if element.kind == "select"
-            and element.kwargs["label"] == "Categoría del punto"
-        )
-        self.assertEqual(category_select.options[""], "Todas las categorías")
-        self.assertEqual(len(category_select.options) - 1, len(HelpPointCategory))
+        with self.subTest("single aggregate activity indicator, not per card"):
+            self.assertEqual(labels.count("Última actividad: el 1 ene 2020, 10:30"), 1)
+            self.assertFalse(any(label.startswith("Actualizado") for label in labels))
+            detail_link = next(
+                element
+                for element in fake_ui.elements
+                if element.kind == "link"
+                and element.kwargs.get("target") == f"/puntos/{active.id}"
+            )
+            card_descendants = []
+
+            def collect(element):
+                for child in element.children:
+                    card_descendants.append(child)
+                    collect(child)
+
+            collect(detail_link)
+            card_labels = [
+                element.args[0] for element in card_descendants if element.kind == "label"
+            ]
+            self.assertFalse(any(label.startswith("Última actividad") for label in card_labels))
+        with self.subTest("category chips list every category once"):
+            todas_label = next(
+                element
+                for element in fake_ui.elements
+                if element.kind == "label" and element.args == ("Todas las categorías",)
+            )
+            todas_chip_row = next(
+                element
+                for element in fake_ui.elements
+                if element.kind == "row" and todas_label in element.children
+            )
+            chips_container = next(
+                element
+                for element in fake_ui.elements
+                if element.kind == "row" and todas_chip_row in element.children
+            )
+            chip_descendants = []
+
+            def collect_chip(element):
+                for child in element.children:
+                    chip_descendants.append(child)
+                    collect_chip(child)
+
+            collect_chip(chips_container)
+            chip_labels = [
+                element.args[0]
+                for element in chip_descendants
+                if element.kind == "label"
+                and element.args
+                and element.args[0] in {category.value for category in HelpPointCategory}
+            ]
+            self.assertEqual(len(chip_labels), len(HelpPointCategory))
 
     def test_result_row_shows_whole_department_when_city_is_none(self) -> None:
         category_id = uuid4()
@@ -690,53 +950,9 @@ class HomeResponsivePresentationTests(unittest.TestCase):
 
         labels = [element.args[0] for element in fake_ui.elements if element.kind == "label"]
         self.assertIn(
-            "Ayuda destinada a: Todo el departamento de Valle del Cauca", labels
+            "📍 Todo el departamento de Valle del Cauca", labels
         )
         self.assertFalse(any("None" in label for label in labels))
-
-    def test_result_card_lists_every_location(self) -> None:
-        category_id = uuid4()
-        multi = PublicHelpPoint(category=HelpPointCategory.RESCUE_OPERATIONS,
-            id=uuid4(), name="Parque", description="Apoyo",
-            locations=(
-                HelpPointLocation(
-                    id=uuid4(), address="Calle 5 # 10-20", city="Cali",
-                    department="Valle del Cauca", latitude=3.4, longitude=-76.5,
-                ),
-                HelpPointLocation(
-                    id=uuid4(), address="Carrera 9 # 3-12", city="Palmira",
-                    department="Valle del Cauca", latitude=3.5, longitude=-76.3,
-                ),
-            ),
-            affected_areas=(
-                AffectedArea(department="Valle del Cauca", city="Roldanillo"),
-            ),
-            coordinator_name="Ana", coordinator_contact="Contacto", active=True,
-            needs=(Need(id=uuid4(), category_id=category_id, status=NeedStatus.NEEDS_HELP),),
-        )
-        fake_ui = RecordingUi()
-        original_ui = home.ui
-        home.ui = fake_ui
-        try:
-            with patch.object(home, "render_help_point_map"):
-                home.render_home(
-                    (multi,),
-                    {"Agua": category_id},
-                    lambda: AFFECTED_DEPARTMENTS,
-                    list_localities,
-                )
-        finally:
-            home.ui = original_ui
-
-        labels = [element.args[0] for element in fake_ui.elements if element.kind == "label"]
-        self.assertEqual(
-            labels.count("Recibe ayuda en: Calle 5 # 10-20, Cali, Valle del Cauca"),
-            1,
-        )
-        self.assertEqual(
-            labels.count("Recibe ayuda en: Carrera 9 # 3-12, Palmira, Valle del Cauca"),
-            1,
-        )
 
     def test_department_change_replaces_city_options_and_refreshes_map_immediately(self) -> None:
         fake_ui = RecordingUi()
@@ -821,20 +1037,128 @@ class HomeResponsivePresentationTests(unittest.TestCase):
                     lambda: AFFECTED_DEPARTMENTS,
                     list_localities,
                 )
-                category_select = next(
-                    element
-                    for element in fake_ui.elements
-                    if element.kind == "select"
-                    and element.kwargs["label"] == "Categoría del punto"
+                click_category_chip(
+                    fake_ui, HelpPointCategory.DONATION_COLLECTION.value
                 )
-                category_select.value = HelpPointCategory.DONATION_COLLECTION
-                category_select.on_change()
         finally:
             home.ui = original_ui
 
         self.assertEqual(rendered_map_points[-1], (donation_point,))
 
-    def test_result_row_shows_at_most_three_needs_and_remainder_count(self) -> None:
+    def test_activity_indicator_reflects_only_the_currently_filtered_points(self) -> None:
+        category_id = uuid4()
+
+        def point(name, category, updated_at):
+            return PublicHelpPoint(category=category,
+                id=uuid4(), name=name, description="Apoyo",
+                locations=(
+                    HelpPointLocation(
+                        id=uuid4(), address="Calle 5", city="Cali",
+                        department="Valle del Cauca", latitude=4.0, longitude=-75.0,
+                    ),
+                ),
+                affected_areas=(
+                    AffectedArea(department="Valle del Cauca", city="Roldanillo"),
+                ),
+                coordinator_name="Ana", coordinator_contact="Contacto", active=True,
+                needs=(Need(id=uuid4(), category_id=category_id, status=NeedStatus.NEEDS_HELP),),
+                updated_at=updated_at,
+            )
+
+        old_donation = point(
+            "Donaciones viejo",
+            HelpPointCategory.DONATION_COLLECTION,
+            datetime(2020, 1, 1, tzinfo=UTC),
+        )
+        new_rescue = point(
+            "Rescate nuevo",
+            HelpPointCategory.RESCUE_OPERATIONS,
+            datetime(2020, 6, 1, tzinfo=UTC),
+        )
+        fake_ui = RecordingUi()
+        original_ui = home.ui
+        home.ui = fake_ui
+        try:
+            with patch.object(home, "render_help_point_map"):
+                home.render_home(
+                    (old_donation, new_rescue),
+                    {"Agua": category_id},
+                    lambda: AFFECTED_DEPARTMENTS,
+                    list_localities,
+                )
+
+                def activity_labels():
+                    return [
+                        element.args[0]
+                        for element in fake_ui.elements
+                        if element.kind == "label"
+                        and element.args
+                        and element.args[0].startswith("Última actividad")
+                    ]
+
+                self.assertEqual(activity_labels(), ["Última actividad: el 1 jun 2020, 00:00"])
+
+                click_category_chip(
+                    fake_ui, HelpPointCategory.DONATION_COLLECTION.value
+                )
+
+                self.assertEqual(activity_labels(), ["Última actividad: el 1 ene 2020, 00:00"])
+
+                click_category_chip(fake_ui, HelpPointCategory.DEBRIS_REMOVAL.value)
+
+                self.assertEqual(activity_labels(), [])
+        finally:
+            home.ui = original_ui
+
+    def test_result_cards_render_in_a_responsive_multi_column_grid(self) -> None:
+        category_id = uuid4()
+
+        def point(name):
+            return PublicHelpPoint(category=HelpPointCategory.RESCUE_OPERATIONS,
+                id=uuid4(), name=name, description="Apoyo",
+                locations=(
+                    HelpPointLocation(
+                        id=uuid4(), address="Calle 5", city="Cali",
+                        department="Valle del Cauca", latitude=4.0, longitude=-75.0,
+                    ),
+                ),
+                affected_areas=(
+                    AffectedArea(department="Valle del Cauca", city="Roldanillo"),
+                ),
+                coordinator_name="Ana", coordinator_contact="Contacto", active=True,
+                needs=(Need(id=uuid4(), category_id=category_id, status=NeedStatus.NEEDS_HELP),),
+            )
+
+        first, second = point("Primero"), point("Segundo")
+        fake_ui = RecordingUi()
+        original_ui = home.ui
+        home.ui = fake_ui
+        try:
+            with patch.object(home, "render_help_point_map"):
+                home.render_home(
+                    (first, second),
+                    {"Agua": category_id},
+                    lambda: AFFECTED_DEPARTMENTS,
+                    list_localities,
+                )
+        finally:
+            home.ui = original_ui
+
+        cards_grid = next(
+            element
+            for element in fake_ui.elements
+            if element.kind == "grid" and "sm:grid-cols-2" in element.classes_value
+        )
+        card_links = [
+            element
+            for element in fake_ui.elements
+            if element.kind == "link"
+            and element.kwargs.get("target", "").startswith("/puntos/")
+        ]
+        self.assertEqual(len(card_links), 2)
+        self.assertTrue(all(link in cards_grid.children for link in card_links))
+
+    def test_result_row_shows_the_most_urgent_need_names_and_remainder_count(self) -> None:
         need_specs = [
             ("Cubierto B", NeedStatus.COVERED),
             ("En camino C", NeedStatus.HELP_ON_THE_WAY),
@@ -873,16 +1197,11 @@ class HomeResponsivePresentationTests(unittest.TestCase):
             home.ui = original_ui
 
         labels = [element.args[0] for element in fake_ui.elements if element.kind == "label"]
-        need_labels = [label for label in labels if label.startswith(("🔴", "🟡", "🟢"))]
-        self.assertEqual(
-            need_labels,
-            [
-                "🔴 Urgente A",
-                "🔴 Urgente Z",
-                "🟡 En camino C",
-            ],
-        )
-        self.assertIn("+1 necesidades", labels)
+        with self.subTest("preview shows the two most urgent need names plus remainder"):
+            self.assertIn("Necesita: Urgente A, Urgente Z +2 más", labels)
+            for need_name, _status in need_specs:
+                if need_name not in ("Urgente A", "Urgente Z"):
+                    self.assertNotIn(need_name, labels)
         detail_link = next(
             element
             for element in fake_ui.elements
@@ -900,17 +1219,25 @@ class HomeResponsivePresentationTests(unittest.TestCase):
         collect(detail_link)
         wrapped_labels = [element.args[0] for element in descendants if element.kind == "label"]
         self.assertIn("Parque", wrapped_labels)
-        self.assertIn("Ayuda destinada a: Roldanillo, Valle del Cauca", wrapped_labels)
-        self.assertIn(
-            "Recibe ayuda en: Calle 5 # 10-20, Cali, Valle del Cauca",
-            wrapped_labels,
-        )
-        self.assertIn("Apoyo", wrapped_labels)
+        self.assertIn("📍 Roldanillo, Valle del Cauca", wrapped_labels)
         self.assertTrue(
             any(element.kind == "icon" and element.args == ("chevron_right",) for element in descendants)
         )
         row = next(element for element in descendants if element.kind == "row")
         self.assertIn("bg-white", detail_link.classes_value + " " + row.classes_value)
+        with self.subTest("card polish: rounder corners and hover lift"):
+            self.assertIn("rounded-2xl", detail_link.classes_value)
+            self.assertIn("hover:shadow-md", detail_link.classes_value)
+            self.assertIn("transition-shadow", detail_link.classes_value)
+        with self.subTest("card accent and badge match the map pin color"):
+            color = category_pin_color(HelpPointCategory.RESCUE_OPERATIONS)
+            self.assertIn(f"border-[{color}]", detail_link.classes_value)
+            badge = next(
+                element
+                for element in descendants
+                if element.kind == "label" and element.args == ("Labores de rescate",)
+            )
+            self.assertIn(f"bg-[{color}]", badge.classes_value)
 
     def test_consecutive_filter_changes_keep_map_links_and_count_synchronized_including_zero(self) -> None:
         category_id = uuid4()
@@ -967,11 +1294,11 @@ class HomeResponsivePresentationTests(unittest.TestCase):
                         element.args[0]
                         for element in fake_ui.elements
                         if element.kind == "label"
-                        and element.args[0].startswith("Puntos que necesitan ayuda —")
+                        and element.args[0].endswith(" resultados")
                     )
                     self.assertEqual({str(item.id) for item in mapped[-1]}, expected_ids)
                     self.assertEqual(link_ids, expected_ids)
-                    self.assertEqual(count, f"Puntos que necesitan ayuda — {len(expected_ids)} resultados")
+                    self.assertEqual(count, f"{len(expected_ids)} resultados")
 
                 assert_visible((cali, palmira, medellin))
                 department.value = "Valle del Cauca"

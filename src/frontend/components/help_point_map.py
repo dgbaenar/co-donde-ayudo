@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from html import escape
@@ -11,12 +12,52 @@ from nicegui import ui
 
 from backend.domain.models import (
     AffectedArea,
+    HelpPointCategory,
     HelpPointLocation,
     NeedStatus,
     PublicHelpPoint,
 )
 
 COLOMBIA_CENTER = (4.5709, -74.2973)
+
+_CATEGORY_PIN_COLORS: dict[HelpPointCategory, str] = {
+    HelpPointCategory.DONATION_COLLECTION: "#059669",
+    HelpPointCategory.DEBRIS_REMOVAL: "#d97706",
+    HelpPointCategory.RESCUE_OPERATIONS: "#dc2626",
+    HelpPointCategory.PSYCHOLOGICAL_SUPPORT: "#7c3aed",
+    HelpPointCategory.MEDICAL_CARE: "#0284c7",
+    HelpPointCategory.HOUSING_AND_SHELTER: "#ea580c",
+    HelpPointCategory.COMMUNITY_FOOD: "#65a30d",
+    HelpPointCategory.VOLUNTEERING: "#4f46e5",
+    HelpPointCategory.BLOOD_DONATION: "#e11d48",
+    HelpPointCategory.MONEY_DONATION: "#0d9488",
+    HelpPointCategory.PET_ASSISTANCE: "#a21caf",
+}
+
+
+def category_pin_color(category: HelpPointCategory) -> str:
+    """Return the strong, saturated hex color for a category's map pin."""
+    return _CATEGORY_PIN_COLORS[category]
+
+
+def category_badge_classes(category: HelpPointCategory) -> str:
+    """Return the solid-color pill classes for a point's category badge."""
+    return (
+        f"text-[10px] font-bold uppercase tracking-wide text-white "
+        f"bg-[{category_pin_color(category)}] rounded-full px-2.5 py-1 self-start"
+    )
+
+
+def pin_icon_html(color: str) -> str:
+    """Build an inline SVG teardrop pin filled with the given color."""
+    return (
+        '<svg xmlns="http://www.w3.org/2000/svg" width="26" height="38" '
+        'viewBox="0 0 26 38">'
+        f'<path d="M13 0C5.82 0 0 5.82 0 13c0 9.75 13 25 13 25s13-15.25 13-25'
+        f'C26 5.82 20.18 0 13 0z" fill="{color}"/>'
+        '<circle cx="13" cy="13" r="5.5" fill="white"/>'
+        "</svg>"
+    )
 
 _SHORT_MONTHS = (
     "ene", "feb", "mar", "abr", "may", "jun",
@@ -110,6 +151,21 @@ def build_popup_html(
     )
 
 
+def apply_modern_basemap(map_element) -> None:
+    """Replace the default OSM tiles with a lighter, more modern basemap."""
+    map_element.clear_layers()
+    map_element.tile_layer(
+        url_template="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png",
+        options={
+            "attribution": (
+                '&copy; <a href="https://www.openstreetmap.org/copyright">'
+                "OpenStreetMap</a> contributors &copy; "
+                '<a href="https://carto.com/attributions">CARTO</a>'
+            ),
+        },
+    )
+
+
 def render_help_point_map(
     points: Sequence[PublicHelpPoint],
     categories: Mapping[str, UUID],
@@ -119,12 +175,15 @@ def render_help_point_map(
 ):
     """Render active points as Leaflet markers with safe popups."""
     map_element = ui.leaflet(center=center, zoom=zoom).classes(
-        "w-full h-64 md:h-[28rem] rounded-2xl overflow-hidden shadow-sm"
+        "w-full h-80 md:h-[28rem] rounded-2xl overflow-hidden shadow-sm"
     )
+    apply_modern_basemap(map_element)
     marker_popups = []
+    marker_icons = []
     for point in points:
         if not point.active:
             continue
+        icon_html = pin_icon_html(category_pin_color(point.category))
         for location in point.locations:
             marker = map_element.marker(
                 latlng=(location.latitude, location.longitude)
@@ -132,10 +191,24 @@ def render_help_point_map(
             marker_popups.append(
                 (marker, build_popup_html(point, categories, location))
             )
+            marker_icons.append((marker, icon_html))
 
     def bind_popups() -> None:
         for marker, popup_html in marker_popups:
-            marker.run_method("bindPopup", popup_html)
+            marker.run_method(
+                "bindPopup", popup_html, {"maxWidth": 240, "maxHeight": 180}
+            )
+        for marker, icon_html in marker_icons:
+            marker.run_method(
+                ":setIcon",
+                "L.divIcon({"
+                f"html: {json.dumps(icon_html)}, "
+                "className: '', "
+                "iconSize: [26, 38], "
+                "iconAnchor: [13, 38], "
+                "popupAnchor: [0, -34]"
+                "})",
+            )
 
     map_element.on("init", bind_popups)
     return map_element

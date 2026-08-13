@@ -426,7 +426,7 @@ class MigrationTests(unittest.TestCase):
 
         self.assertEqual(result.returncode, 0, result.stderr)
         heads = [line.split()[0] for line in result.stdout.splitlines() if line.strip()]
-        self.assertEqual(heads, ["0010_help_point_category_more_types"])
+        self.assertEqual(heads, ["0012_help_point_category_pet_assistance"])
 
     def test_optional_affected_city_migration_follows_widen_revision_without_new_tables(
         self,

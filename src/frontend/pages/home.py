@@ -7,38 +7,45 @@ from uuid import UUID
 
 from nicegui import ui
 
-from backend.domain.models import HelpPointCategory, PublicHelpPoint
+from backend.domain.models import HelpPointCategory, Need, PublicHelpPoint
 from frontend.components.help_point_map import (
+    category_badge_classes,
+    category_pin_color,
     describe_affected_areas,
     format_relative_time,
     format_short_date,
     format_short_datetime,
     render_help_point_map,
-    status_line,
 )
 
 ListDepartments = Callable[[], Sequence[str]]
 ListLocalities = Callable[[str], Sequence[str]]
 
-_CATEGORY_BADGE_CLASSES: dict[HelpPointCategory, str] = {
-    HelpPointCategory.DONATION_COLLECTION: "text-emerald-800 bg-emerald-50 border-emerald-200",
-    HelpPointCategory.DEBRIS_REMOVAL: "text-amber-800 bg-amber-50 border-amber-200",
-    HelpPointCategory.RESCUE_OPERATIONS: "text-red-800 bg-red-50 border-red-200",
-    HelpPointCategory.PSYCHOLOGICAL_SUPPORT: "text-violet-800 bg-violet-50 border-violet-200",
-    HelpPointCategory.MEDICAL_CARE: "text-sky-800 bg-sky-50 border-sky-200",
-    HelpPointCategory.HOUSING_AND_SHELTER: "text-orange-800 bg-orange-50 border-orange-200",
-    HelpPointCategory.COMMUNITY_FOOD: "text-lime-800 bg-lime-50 border-lime-200",
-    HelpPointCategory.VOLUNTEERING: "text-indigo-800 bg-indigo-50 border-indigo-200",
-    HelpPointCategory.BLOOD_DONATION: "text-rose-800 bg-rose-50 border-rose-200",
-}
+_NEED_STATUS_PRIORITY = {"NEEDS_HELP": 0, "HELP_ON_THE_WAY": 1, "COVERED": 2}
 
 
-def category_badge_classes(category: HelpPointCategory) -> str:
-    """Return the badge color classes for a point's category, one per category."""
-    colors = _CATEGORY_BADGE_CLASSES[category]
-    return (
-        f"text-xs font-medium {colors} border rounded-full px-2 py-0.5 self-start"
+def needs_preview_text(
+    needs: Sequence[Need],
+    category_names: Mapping[UUID, str],
+    *,
+    limit: int = 2,
+) -> str | None:
+    """Describe the most urgent need names, up to `limit`, or None if empty."""
+    if not needs:
+        return None
+    ordered = sorted(
+        needs,
+        key=lambda need: (
+            _NEED_STATUS_PRIORITY[need.status.value],
+            category_names.get(need.category_id, "Necesidad").casefold(),
+        ),
     )
+    names = [category_names.get(need.category_id, "Necesidad") for need in ordered[:limit]]
+    remaining = len(ordered) - limit
+    text = f"Necesita: {', '.join(names)}"
+    if remaining > 0:
+        text += f" +{remaining} más"
+    return text
 
 
 def filter_public_help_points(
@@ -70,12 +77,15 @@ def affected_area_text(point: PublicHelpPoint) -> str:
     return describe_affected_areas(point.affected_areas)
 
 
-def freshness_text(point: PublicHelpPoint) -> str:
-    """Describe how recently the point was updated, relative or absolute."""
-    relative = format_relative_time(point.updated_at)
+def latest_activity_text(points: Sequence[PublicHelpPoint]) -> str | None:
+    """Describe how recently any of the given points was updated, or None if empty."""
+    if not points:
+        return None
+    latest = max(point.updated_at for point in points)
+    relative = format_relative_time(latest)
     if relative:
-        return f"Actualizado {relative}"
-    return f"Actualizado el {format_short_datetime(point.updated_at)}"
+        return f"Última actividad: {relative}"
+    return f"Última actividad: el {format_short_datetime(latest)}"
 
 
 def location_filter_options(
@@ -109,12 +119,6 @@ def render_home(
             **{value: value for value in values},
         }
 
-    def point_category_options() -> dict[HelpPointCategory | str, str]:
-        return {
-            "": "Todas las categorías",
-            **{category: category.value for category in HelpPointCategory},
-        }
-
     def empty_city_options() -> dict[str, str]:
         return {"": "Selecciona primero un departamento"}
 
@@ -127,21 +131,96 @@ def render_home(
             "COVERED": "text-emerald-600 text-[10px] mt-1",
         }[point.needs[0].status.value]
 
+    selected_category: HelpPointCategory | str = ""
+
+    def select_category(category: HelpPointCategory | str) -> None:
+        nonlocal selected_category
+        selected_category = category
+        refresh()
+
+    def render_category_chip(
+        label: str, color: str, count: int, *, is_selected: bool, value: HelpPointCategory | str
+    ) -> None:
+        chip_classes = (
+            "flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm "
+            "font-semibold cursor-pointer transition-colors shrink-0 "
+        )
+        if is_selected:
+            chip_classes += f"text-white bg-[{color}]"
+        else:
+            chip_classes += (
+                "bg-white border border-slate-200 text-slate-700 "
+                f"hover:border-[{color}]"
+            )
+        with ui.row().classes(chip_classes).on(
+            "click", lambda: select_category(value)
+        ):
+            if not is_selected:
+                ui.element("div").classes(
+                    f"w-2 h-2 rounded-full bg-[{color}] shrink-0"
+                )
+            ui.label(label)
+            ui.label(str(count)).classes(
+                "text-xs " + ("text-white/80" if is_selected else "text-slate-400")
+            )
+
+    def render_category_chips() -> None:
+        category_chips.clear()
+        with category_chips:
+            location_filtered = filter_public_help_points(
+                active_points,
+                city=city.value or "",
+                department=department.value or "",
+            )
+            render_category_chip(
+                "Todas las categorías",
+                "#003893",
+                len(location_filtered),
+                is_selected=selected_category == "",
+                value="",
+            )
+            for point_category in HelpPointCategory:
+                render_category_chip(
+                    point_category.value,
+                    category_pin_color(point_category),
+                    len(
+                        filter_public_help_points(
+                            location_filtered, category=point_category
+                        )
+                    ),
+                    is_selected=selected_category == point_category,
+                    value=point_category,
+                )
+
     def refresh() -> None:
+        render_category_chips()
         filtered_points = filter_public_help_points(
             active_points,
             city=city.value or "",
             department=department.value or "",
-            category=point_category.value or "",
+            category=selected_category,
         )
+        activity_indicator.clear()
+        activity_text = latest_activity_text(filtered_points)
+        if activity_text:
+            with activity_indicator:
+                ui.icon("schedule").classes("text-slate-500 text-sm").props(
+                    "aria-hidden=true"
+                )
+                ui.label(activity_text).classes("text-xs text-slate-500")
         map_container.clear()
         with map_container:
             render_help_point_map(filtered_points, categories)
         results.clear()
         with results:
-            ui.label(
-                f"Puntos que necesitan ayuda — {len(filtered_points)} resultados"
-            ).classes("text-h6")
+            with ui.row().classes("w-full items-center justify-between gap-2"):
+                ui.label("Puntos que necesitan ayuda").classes(
+                    "text-xl font-bold text-slate-900"
+                )
+                ui.label(f"{len(filtered_points)} resultados").classes(
+                    "text-xs font-semibold text-white bg-[#003893] "
+                    "rounded-full px-3 py-1 whitespace-nowrap"
+                )
             if not active_points:
                 ui.label("Todavía no hay puntos de ayuda activos.")
             elif not filtered_points:
@@ -149,78 +228,52 @@ def render_home(
                     "No encontramos puntos con estos filtros. "
                     "Prueba con otro departamento, ciudad / municipio o categoría."
                 )
-            for point in filtered_points:
-                status_priority = {
-                    "NEEDS_HELP": 0,
-                    "HELP_ON_THE_WAY": 1,
-                    "COVERED": 2,
-                }
-                ordered_needs = sorted(
-                    point.needs,
-                    key=lambda need: (
-                        status_priority[need.status.value],
-                        category_names.get(need.category_id, "Necesidad").casefold(),
-                    ),
-                )
-                with ui.link(target=f"/puntos/{point.id}").classes(
-                    "w-full min-h-[44px] no-underline text-inherit bg-white "
-                    "border border-slate-200 rounded-xl shadow-sm"
-                ):
-                    with ui.row().classes("w-full items-start gap-3 p-3 flex-nowrap"):
-                        ui.icon("circle").classes(indicator_classes(point)).props(
-                            "aria-hidden=true"
-                        )
-                        with ui.column().classes("flex-1 min-w-0 gap-1"):
-                            ui.label(point.name).classes("font-semibold text-slate-900")
-                            ui.label(freshness_text(point)).classes(
-                                "text-sm font-bold text-emerald-700 bg-emerald-50 "
-                                "border border-emerald-200 rounded-full px-3 py-1 "
-                                "self-start whitespace-nowrap"
+            with ui.grid().classes("w-full grid-cols-1 sm:grid-cols-2 gap-3"):
+                for point in filtered_points:
+                    with ui.link(target=f"/puntos/{point.id}").classes(
+                        "w-full min-h-[160px] no-underline text-inherit bg-white "
+                        f"border-l-4 border-[{category_pin_color(point.category)}] "
+                        "rounded-2xl shadow-sm hover:shadow-md transition-shadow"
+                    ):
+                        with ui.column().classes("w-full gap-2 p-4"):
+                            with ui.row().classes(
+                                "w-full items-center justify-between gap-2"
+                            ):
+                                ui.label(point.category.value).classes(
+                                    category_badge_classes(point.category)
+                                )
+                                ui.icon("chevron_right").classes(
+                                    "text-emerald-700 shrink-0"
+                                ).props("aria-hidden=true")
+                            with ui.row().classes(
+                                "w-full items-center gap-2 flex-nowrap"
+                            ):
+                                ui.icon("circle").classes(
+                                    indicator_classes(point)
+                                ).props("aria-hidden=true")
+                                ui.label(point.name).classes(
+                                    "text-base font-semibold text-slate-900"
+                                )
+                            ui.label(f"📍 {affected_area_text(point)}").classes(
+                                "text-xs text-slate-500 line-clamp-1"
                             )
-                            ui.label(point.category.value).classes(
-                                category_badge_classes(point.category)
-                            )
-                            ui.label(
-                                f"Ayuda destinada a: {affected_area_text(point)}"
-                            ).classes(
-                                "text-xs text-slate-500"
-                            )
-                            for location in point.locations:
-                                reception_location = ", ".join(
-                                    value
-                                    for value in (
-                                        location.address,
-                                        location.city,
-                                        location.department,
+                            with ui.row().classes(
+                                "w-full items-center justify-between gap-2 flex-nowrap"
+                            ):
+                                preview = needs_preview_text(point.needs, category_names)
+                                ui.label(preview or "Sin necesidades registradas").classes(
+                                    "flex-1 min-w-0 truncate "
+                                    + (
+                                        "text-xs font-medium text-slate-700"
+                                        if preview
+                                        else "text-xs text-slate-400"
                                     )
-                                    if value
                                 )
                                 ui.label(
-                                    f"Recibe ayuda en: {reception_location}"
-                                ).classes("text-xs text-slate-500")
-                            ui.label(point.description).classes(
-                                "text-sm text-slate-700 line-clamp-2"
-                            )
-                            with ui.row().classes("w-full flex-wrap gap-x-2 gap-y-1"):
-                                for need in ordered_needs[:3]:
-                                    category_name = category_names.get(
-                                        need.category_id, "Necesidad"
-                                    )
-                                    ui.label(
-                                        status_line(need.status, category_name)
-                                    ).classes("text-xs")
-                                remaining_needs = len(ordered_needs) - 3
-                                if remaining_needs > 0:
-                                    ui.label(f"+{remaining_needs} necesidades").classes(
-                                        "text-xs text-slate-500"
-                                    )
-                        with ui.column().classes("items-end gap-1 shrink-0"):
-                            ui.label(
-                                f"Publicado el {format_short_date(point.created_at)}"
-                            ).classes("text-xs text-slate-400 whitespace-nowrap")
-                            ui.icon("chevron_right").classes(
-                                "text-emerald-700"
-                            ).props("aria-hidden=true")
+                                    f"Publicado el {format_short_date(point.created_at)}"
+                                ).classes(
+                                    "shrink-0 text-xs text-slate-400 whitespace-nowrap"
+                                )
 
     def change_department() -> None:
         selected_department = department.value or ""
@@ -239,32 +292,46 @@ def render_home(
         city.update()
         refresh()
 
-    with ui.column().classes("w-full min-h-screen bg-white text-slate-900"):
-        with ui.column().classes("w-full max-w-7xl mx-auto gap-4 p-4"):
+    with ui.column().classes("w-full min-h-screen bg-slate-50 text-slate-900"):
+        with ui.row().classes("w-full gap-0 h-1.5"):
+            ui.row().classes("flex-1 h-1.5 bg-[#FCD116]")
+            ui.row().classes("flex-1 h-1.5 bg-[#003893]")
+            ui.row().classes("flex-1 h-1.5 bg-[#CE1126]")
+        with ui.column().classes(
+            "w-full items-center gap-3 bg-white border-b border-slate-200 "
+            "py-8 px-4 text-center"
+        ):
+            with ui.column().classes("items-center gap-2"):
+                ui.icon("location_on").classes(
+                    "text-white "
+                    "bg-[linear-gradient(to_bottom,#FCD116_50%,#003893_50%,"
+                    "#003893_75%,#CE1126_75%)] rounded-xl p-2 text-xl shrink-0"
+                ).props("aria-hidden=true")
+                ui.label("¿Dónde ayudo?").classes(
+                    "text-2xl sm:text-4xl font-bold leading-tight text-emerald-950"
+                )
+            ui.label(
+                "Explora el mapa o revisa la lista de puntos activos y ayudemos "
+                "juntos a Colombia."
+            ).classes("text-sm md:text-base text-slate-600 max-w-xl")
+            activity_indicator = ui.row().classes("items-center justify-center gap-1")
             with ui.row().classes(
-                "w-full items-center justify-between gap-3 flex-wrap sm:flex-nowrap"
+                "flex-col sm:flex-row items-center justify-center gap-3 w-full sm:w-auto"
             ):
-                with ui.row().classes(
-                    "w-full sm:w-auto items-center gap-2 min-w-0 flex-1 flex-nowrap"
-                ):
-                    ui.icon("location_on").classes(
-                        "text-white bg-emerald-700 rounded-xl p-2 text-xl shrink-0"
-                    ).props("aria-hidden=true")
-                    ui.label("¿Dónde ayudo?").classes(
-                        "text-lg sm:text-2xl font-semibold leading-tight "
-                        "text-emerald-950 whitespace-nowrap"
-                    )
-                ui.link("Crear nuevo punto de ayuda o recolección", "/crear").classes(
-                    "w-full sm:w-auto min-h-[48px] flex items-center justify-center "
-                    "px-4 text-base rounded-lg font-medium bg-emerald-700 text-white "
-                    "hover:bg-emerald-800 no-underline shadow-sm shrink-0"
+                ui.link("Encontrar cómo ayudar", "#resultados").classes(
+                    "min-h-[48px] flex items-center justify-center w-full sm:w-64 "
+                    "px-6 text-base rounded-2xl font-medium bg-[#003893] text-white "
+                    "hover:bg-[#002d76] no-underline shadow-sm"
                 )
-            with ui.column().classes("w-full gap-1 max-w-3xl"):
-                ui.label("Explora el mapa o revisa la lista de puntos activos.").classes(
-                    "text-sm md:text-base text-slate-600"
+                ui.link("Crear iniciativa", "/crear").classes(
+                    "min-h-[48px] flex items-center justify-center w-full sm:w-64 "
+                    "px-6 text-base rounded-2xl font-medium bg-[#003893] text-white "
+                    "hover:bg-[#002d76] no-underline shadow-sm"
                 )
+        with ui.column().classes("w-full max-w-7xl mx-auto gap-6 p-4"):
             with ui.column().classes(
-                "w-full gap-1 rounded-2xl bg-slate-100 p-4"
+                "w-full gap-1 rounded-2xl bg-white p-4 border-l-4 border-red-600 "
+                "shadow-sm"
             ):
                 ui.label("Emergencia activa").classes(
                     "text-xs font-semibold uppercase tracking-wide text-slate-600"
@@ -272,20 +339,27 @@ def render_home(
                 ui.label("Respuesta al terremoto de Chocó").classes(
                     "text-lg sm:text-xl font-semibold text-slate-900"
                 )
+                ui.label("Terremoto del 10 de agosto de 2026").classes(
+                    "text-xs font-medium text-red-700"
+                )
                 ui.label(
                     "Encuentra puntos de ayuda para zonas afectadas en Chocó, Caldas, "
                     "Valle del Cauca, Risaralda y Quindío."
                 ).classes("text-sm leading-relaxed text-slate-600")
             with ui.column().classes(
-                "w-full gap-2 rounded-2xl bg-slate-100 p-3"
-            ):
+                "w-full gap-3 rounded-2xl bg-white p-4 shadow-sm"
+            ).props("id=resultados"):
                 with ui.row().classes("items-center gap-2"):
-                    ui.icon("filter_alt").classes("text-slate-700").props(
+                    ui.icon("filter_alt").classes("text-[#003893]").props(
                         "aria-hidden=true"
                     )
                     ui.label("Filtros").classes(
-                        "text-sm font-semibold text-slate-800"
+                        "text-base font-bold text-slate-800"
                     )
+                category_chips = ui.row().classes(
+                    "w-full flex-nowrap sm:flex-wrap gap-2 overflow-x-auto "
+                    "sm:overflow-visible pb-1"
+                )
                 with ui.row().classes(
                     "w-full gap-3 flex-col sm:flex-row sm:flex-nowrap"
                 ):
@@ -295,9 +369,10 @@ def render_home(
                         label="Departamento",
                         on_change=change_department,
                     ).classes(
-                        "w-full sm:w-auto sm:flex-1 sm:min-w-0 bg-white rounded-lg"
+                        "w-full sm:w-auto sm:flex-1 sm:min-w-0"
                     ).props(
-                        'outlined dense behavior=menu color=blue-grey-9 '
+                        'filled rounded behavior=menu color=blue-grey-9 '
+                        'transition-show=none transition-hide=none '
                         'popup-content-class=bounded-select-menu '
                         'popup-content-style="max-height: 40vh !important; overflow-y: auto"'
                     )
@@ -307,27 +382,16 @@ def render_home(
                         label="Ciudad / Municipio",
                         on_change=refresh,
                     ).classes(
-                        "w-full sm:w-auto sm:flex-1 sm:min-w-0 bg-white rounded-lg"
+                        "w-full sm:w-auto sm:flex-1 sm:min-w-0"
                     ).props(
-                        'outlined dense behavior=menu color=blue-grey-9 '
+                        'filled rounded behavior=menu color=blue-grey-9 '
+                        'transition-show=none transition-hide=none '
                         'popup-content-class=bounded-select-menu '
                         'popup-content-style="max-height: 40vh !important; overflow-y: auto"'
                     )
                     city.disable()
-                    point_category = ui.select(
-                        options=point_category_options(),
-                        value="",
-                        label="Categoría del punto",
-                        on_change=refresh,
-                    ).classes(
-                        "w-full sm:w-auto sm:flex-1 sm:min-w-0 bg-white rounded-lg"
-                    ).props(
-                        'outlined dense behavior=menu color=blue-grey-9 '
-                        'popup-content-class=bounded-select-menu '
-                        'popup-content-style="max-height: 40vh !important; overflow-y: auto"'
-                    )
             with ui.grid().classes(
-                "w-full grid-cols-1 lg:grid-cols-[3fr_2fr] gap-4 items-start"
+                "w-full grid-cols-1 lg:grid-cols-[380px_1fr] gap-4 items-start"
             ):
                 map_container = ui.column().classes(
                     "w-full overflow-hidden rounded-2xl bg-white shadow-sm"

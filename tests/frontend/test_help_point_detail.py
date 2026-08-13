@@ -107,6 +107,9 @@ class RecordingUi:
     def button(self, *args, **kwargs):
         return self._record("button", *args, **kwargs)
 
+    def icon(self, *args, **kwargs):
+        return self._record("icon", *args, **kwargs)
+
     def notify(self, *args, **kwargs):
         return self._record("notify", *args, **kwargs)
 
@@ -249,14 +252,34 @@ class HelpPointDetailTests(unittest.TestCase):
         self.assertIn("Roldanillo, Valle del Cauca", labels)
         self.assertIn("Calle 5 # 10-20, Cali, Valle del Cauca", labels)
         self.assertFalse(any(label.startswith("También:") for label in labels))
-        self.assertIn("🔴 Agua", labels)
-        self.assertIn("🟡 Alimentos", labels)
-        self.assertIn("🟢 Refugio — no enviar más", labels)
+        self.assertIn("Se necesita", labels)
+        self.assertIn("En camino", labels)
+        self.assertIn("Cubierto", labels)
+        self.assertIn("Agua", labels)
+        self.assertIn("Alimentos", labels)
+        self.assertIn("Refugio", labels)
         self.assertIn(
             "Marca \"Voy a ayudar\" solo si de verdad vas a cumplir con esa "
             "necesidad. Si no vas a poder, por favor no la marques.",
             labels,
         )
+        with self.subTest("category badge and matching colored accent"):
+            from frontend.components.help_point_map import category_pin_color
+
+            self.assertIn("Labores de rescate", labels)
+            main_card = next(
+                element
+                for element in self.fake_ui.elements
+                if element.kind == "column" and level_one[0]
+                and any(
+                    child.args and child.args[0] == level_one[0]
+                    for child in element.children
+                    if child.kind == "label"
+                )
+            )
+            color = category_pin_color(HelpPointCategory.RESCUE_OPERATIONS)
+            self.assertIn(f"border-[{color}]", main_card.classes_value)
+            self.assertIn("border-l-4", main_card.classes_value)
         self.assertIn(
             "El amarillo se activa automáticamente al confirmar ayuda. "
             "Solo quien coordina este punto puede marcarlo como cubierto "
@@ -278,6 +301,10 @@ class HelpPointDetailTests(unittest.TestCase):
             for element in self.fake_ui.elements
             if element.kind in ("row", "column")
             and "border-l-4" in element.classes_value
+            and any(
+                token in element.classes_value
+                for token in ("border-l-red-500", "border-l-amber-500", "border-l-emerald-500")
+            )
         ]
         self.assertEqual(len(status_rows), 3)
         self.assertTrue(
@@ -580,6 +607,15 @@ class VoyAAyudarDialogTests(unittest.TestCase):
 
         self.assertEqual(len(self._trigger_buttons()), 2)
 
+    def test_all_buttons_use_the_same_pill_shape(self) -> None:
+        self._render(lambda *_args: object())
+
+        buttons = [element for element in self.fake_ui.elements if element.kind == "button"]
+        self.assertTrue(buttons)
+        for button in buttons:
+            with self.subTest(button=button.args[0] if button.args else None):
+                self.assertIn("rounded-2xl", button.classes_value)
+
     def test_button_opens_dialog_with_required_name_and_optional_note_fields(self) -> None:
         self._render(lambda *_args: object())
 
@@ -823,8 +859,9 @@ class VoyAAyudarDialogTests(unittest.TestCase):
             for element in self.fake_ui.elements
             if element.kind == "label"
         ]
-        self.assertEqual(labels_before.count("🔴 Agua"), 1)
-        self.assertEqual(labels_before.count("🟡 Agua"), 1)
+        self.assertEqual(labels_before.count("Se necesita"), 1)
+        self.assertEqual(labels_before.count("En camino"), 1)
+        self.assertEqual(labels_before.count("Agua"), 2)
         self.assertEqual(sum("red" in box.classes_value for box in status_boxes()), 1)
 
         name_input = next(
@@ -845,8 +882,8 @@ class VoyAAyudarDialogTests(unittest.TestCase):
             for element in self.fake_ui.elements
             if element.kind == "label"
         ]
-        self.assertEqual(labels_after.count("🔴 Agua"), 0)
-        self.assertEqual(labels_after.count("🟡 Agua"), 2)
+        self.assertEqual(labels_after.count("Se necesita"), 0)
+        self.assertEqual(labels_after.count("En camino"), 2)
         self.assertEqual(sum("red" in box.classes_value for box in status_boxes()), 0)
         self.assertEqual(
             sum("amber" in box.classes_value for box in status_boxes()), 2

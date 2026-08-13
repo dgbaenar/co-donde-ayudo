@@ -63,6 +63,7 @@ class RecordingUi:
     def link(self, *args, **kwargs): return self._record("link", *args, **kwargs)
     def input(self, *args, **kwargs): return self._record("input", *args, **kwargs)
     def button(self, *args, **kwargs): return self._record("button", *args, **kwargs)
+    def icon(self, *args, **kwargs): return self._record("icon", *args, **kwargs)
     def notify(self, *args, **kwargs):
         self.on_notify()
         return self._record("notify", *args, **kwargs)
@@ -194,8 +195,15 @@ class CoordinatorAccessPageTests(unittest.TestCase):
         self.assertIn("w-full", button.classes_value)
         self.assertIn("min-h-[48px]", button.classes_value)
         self.assertIn("unelevated", button.props_value)
-        self.assertIn("color=primary", button.props_value)
+        self.assertIn("color=secondary", button.props_value)
         self.assertNotIn("color=green-9", button.props_value)
+        key_input = next(
+            element for element in self.fake_ui.elements if element.kind == "input"
+        )
+        with self.subTest("access key input uses the filled rounded style"):
+            self.assertIn("filled", key_input.props_value)
+            self.assertIn("rounded", key_input.props_value)
+            self.assertNotIn("dense", key_input.props_value)
 
     def test_correct_key_sets_boolean_session_authorization_and_navigates_to_create(self) -> None:
         authorizer = RecordingAuthorizer("synthetic-correct-key")
@@ -291,10 +299,13 @@ class CoordinatorAccessRouteTests(unittest.TestCase):
             ],
         )
 
-    def test_create_app_sets_global_primary_color_to_brand_green(self) -> None:
+    def test_create_app_sets_global_brand_colors(self) -> None:
         self.register_routes()
 
-        self.assertEqual(self.fake_app.color_calls, [{"primary": "#047857"}])
+        self.assertEqual(
+            self.fake_app.color_calls,
+            [{"primary": "#047857", "secondary": "#003893"}],
+        )
 
     def test_access_route_renders_with_injected_authorizer(self) -> None:
         self.register_routes()

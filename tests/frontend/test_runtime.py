@@ -175,7 +175,9 @@ class RuntimeTests(unittest.TestCase):
             reload=False,
             storage_secret="synthetic-session-secret",
             session_middleware_kwargs={"https_only": True},
+            favicon=runtime.COLOMBIA_FLAG_FAVICON,
         )
+        self.assertTrue(runtime.COLOMBIA_FLAG_FAVICON.strip().startswith("<svg"))
 
 
 if __name__ == "__main__":
