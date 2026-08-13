@@ -88,8 +88,14 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(storage_secret, "synthetic-session-secret")
         self.assertTrue(https_only)
         create_app.assert_called_once_with(
-            list_public_help_points=service.list_active_help_points,
+            open_active_help_points_snapshot=service.open_active_help_points_snapshot,
+            list_active_help_points_page=service.list_active_help_points_page,
             list_active_categories=service.list_active_categories,
+            get_cached_public_home=service.get_cached_public_home,
+            begin_public_home_refresh=service.begin_public_home_refresh,
+            finish_public_home_refresh=service.finish_public_home_refresh,
+            abort_public_home_refresh=service.abort_public_home_refresh,
+            wait_for_cached_public_home=service.wait_for_cached_public_home,
             list_departments=location_catalog.list_departments,
             list_localities=location_catalog.list_localities,
             list_affected_departments=list_affected_departments,
@@ -108,7 +114,8 @@ class RuntimeTests(unittest.TestCase):
             update_help_point_affected_areas=service.update_help_point_affected_areas,
             deactivate_help_point=service.deactivate_help_point,
             authorize_coordinator_access=access_service.authorize,
-            get_public_help_point=service.get_public_help_point,
+            get_cached_public_help_point=service.get_cached_public_help_point,
+            refresh_public_help_point=service.refresh_public_help_point,
             is_database_ready=database_ready,
             create_commitment=service.create_commitment,
         )

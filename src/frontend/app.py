@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Mapping
 from uuid import UUID
 
 from nicegui import app, ui
 from starlette.responses import PlainTextResponse
 
-from backend.domain.models import HelpPoint, PublicHelpPoint
+from backend.domain.models import HelpPoint
 from frontend.pages.create_help_point import (
     CreateCustomCategoryHandler,
     CreateHelpPointHandler,
@@ -19,11 +19,23 @@ from frontend.pages.coordinator_access import (
     AuthorizeCoordinatorAccess,
     render_coordinator_access,
 )
-from frontend.pages.home import ListDepartments, ListLocalities, render_home
+from frontend.pages.home import (
+    AbortPublicHomeRefresh,
+    BeginPublicHomeRefresh,
+    FinishPublicHomeRefresh,
+    GetCachedPublicHome,
+    ListDepartments,
+    ListLocalities,
+    ListPublicHelpPointsPage,
+    OpenPublicHelpPointsSnapshot,
+    WaitForCachedPublicHome,
+    render_home,
+)
 from frontend.pages.help_point_detail import (
     CreateCommitmentHandler,
-    GetPublicHelpPoint,
-    render_help_point_detail_for_path,
+    GetCachedPublicHelpPoint,
+    RefreshPublicHelpPoint,
+    render_cached_help_point_detail_for_path,
 )
 from frontend.pages.manage_help_point import (
     AddNeedHandler,
@@ -40,8 +52,14 @@ from frontend.pages.manage_help_point import (
 
 
 def create_app(
-    list_public_help_points: Callable[[], Sequence[PublicHelpPoint]],
+    open_active_help_points_snapshot: OpenPublicHelpPointsSnapshot,
+    list_active_help_points_page: ListPublicHelpPointsPage,
     list_active_categories: Callable[[], Mapping[str, UUID]],
+    get_cached_public_home: GetCachedPublicHome,
+    begin_public_home_refresh: BeginPublicHomeRefresh,
+    finish_public_home_refresh: FinishPublicHomeRefresh,
+    abort_public_home_refresh: AbortPublicHomeRefresh,
+    wait_for_cached_public_home: WaitForCachedPublicHome,
     list_departments: ListDepartments,
     list_localities: ListLocalities,
     list_affected_departments: ListDepartments,
@@ -60,7 +78,8 @@ def create_app(
     update_help_point_locations: UpdateHelpPointLocationsHandler,
     update_help_point_affected_areas: UpdateHelpPointAffectedAreasHandler,
     authorize_coordinator_access: AuthorizeCoordinatorAccess,
-    get_public_help_point: GetPublicHelpPoint,
+    get_cached_public_help_point: GetCachedPublicHelpPoint,
+    refresh_public_help_point: RefreshPublicHelpPoint,
     is_database_ready: Callable[[], bool],
     create_commitment: CreateCommitmentHandler,
 ) -> None:
@@ -85,10 +104,18 @@ def create_app(
     @ui.page("/", title="¿Dónde ayudo?")
     def home_page() -> None:
         render_home(
-            list_public_help_points(),
-            list_active_categories(),
+            (),
+            {},
             list_affected_departments,
             list_localities,
+            list_active_categories=list_active_categories,
+            open_public_help_points_snapshot=open_active_help_points_snapshot,
+            list_public_help_points_page=list_active_help_points_page,
+            get_cached_public_home=get_cached_public_home,
+            begin_public_home_refresh=begin_public_home_refresh,
+            finish_public_home_refresh=finish_public_home_refresh,
+            abort_public_home_refresh=abort_public_home_refresh,
+            wait_for_cached_public_home=wait_for_cached_public_home,
         )
 
     @ui.page("/acceso")
@@ -97,10 +124,10 @@ def create_app(
 
     @ui.page("/puntos/{point_id}")
     def help_point_detail_page(point_id: str) -> None:
-        render_help_point_detail_for_path(
+        render_cached_help_point_detail_for_path(
             point_id,
-            get_public_help_point,
-            list_active_categories(),
+            get_cached_public_help_point,
+            refresh_public_help_point,
             create_commitment,
         )
 

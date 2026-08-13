@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import dataclasses
+import threading
 import unittest
 from datetime import UTC, datetime
 from uuid import uuid4
 
+from backend.application.public_cache import PublicHelpPointCache
 from backend.application.services import HelpPointService
 from backend.domain.emergency_scope import AFFECTED_DEPARTMENTS, list_affected_departments
 from backend.domain.models import (
@@ -23,6 +25,11 @@ class FakeRepository:
         self.updated = None
         self.categories = {}
         self.active_points = ()
+        self.public_point = None
+        self.public_point_query_id = None
+        self.active_point_count = 0
+        self.active_point_page = ()
+        self.active_point_page_args = None
         self.managed_point = None
         self.custom_category_id = uuid4()
         self.custom_category_name = None
@@ -43,6 +50,21 @@ class FakeRepository:
 
     def list_active_help_points(self):
         return self.active_points
+
+    def get_active_help_point_by_id(self, point_id):
+        self.public_point_query_id = point_id
+        return self.public_point
+
+    def open_active_help_points_snapshot(self):
+        return self.active_point_snapshot, self.active_point_count
+
+    def list_active_help_points_page(
+        self, *, snapshot_created_at, before_created_at, before_id, limit
+    ):
+        self.active_point_page_args = (
+            snapshot_created_at, before_created_at, before_id, limit
+        )
+        return self.active_point_page
 
     def get_help_point_by_admin_token(self, admin_token):
         return self.managed_point
@@ -785,9 +807,69 @@ class HelpPointServiceTests(unittest.TestCase):
         self.assertNotIn("admin_token", {field.name for field in dataclasses.fields(result[0])})
         self.assertNotIn(point.admin_token, repr(result[0]))
 
+    def test_counts_active_help_points_from_repository(self) -> None:
+        self.repository.active_point_count = 7
+
+        snapshot = datetime(2026, 8, 13, tzinfo=UTC)
+        self.repository.active_point_snapshot = snapshot
+        self.assertEqual(
+            self.service.open_active_help_points_snapshot(), (snapshot, 7)
+        )
+
+    def test_lists_public_active_point_page_with_complete_cursor(self) -> None:
+        point = self.service.create_help_point(self.command()).point
+        cursor_created_at = datetime(2026, 8, 12, tzinfo=UTC)
+        cursor_id = uuid4()
+        self.repository.active_point_page = (point,)
+
+        result = self.service.list_active_help_points_page(
+            snapshot_created_at=cursor_created_at,
+            before_created_at=cursor_created_at,
+            before_id=cursor_id,
+            limit=6,
+        )
+
+        self.assertEqual([public.id for public in result], [point.id])
+        self.assertNotIn(point.admin_token, repr(result[0]))
+        self.assertEqual(
+            self.repository.active_point_page_args,
+            (cursor_created_at, cursor_created_at, cursor_id, 6),
+        )
+
+    def test_active_point_page_rejects_partial_cursor(self) -> None:
+        with self.assertRaisesRegex(ValueError, "cursor"):
+            self.service.list_active_help_points_page(
+                snapshot_created_at=datetime(2026, 8, 13, tzinfo=UTC),
+                before_created_at=datetime(2026, 8, 12, tzinfo=UTC),
+                before_id=None,
+                limit=6,
+            )
+        with self.assertRaisesRegex(ValueError, "cursor"):
+            self.service.list_active_help_points_page(
+                snapshot_created_at=datetime(2026, 8, 13, tzinfo=UTC),
+                before_created_at=None,
+                before_id=uuid4(),
+                limit=6,
+            )
+
+        self.assertIsNone(self.repository.active_point_page_args)
+
+    def test_active_point_page_rejects_nonpositive_limit(self) -> None:
+        for limit in (0, -1):
+            with self.subTest(limit=limit):
+                with self.assertRaisesRegex(ValueError, "limit"):
+                    self.service.list_active_help_points_page(
+                        snapshot_created_at=datetime(2026, 8, 13, tzinfo=UTC),
+                        before_created_at=None,
+                        before_id=None,
+                        limit=limit,
+                    )
+
+        self.assertIsNone(self.repository.active_point_page_args)
+
     def test_gets_public_active_point_by_id_without_administrative_data(self) -> None:
         point = self.service.create_help_point(self.command()).point
-        self.repository.active_points = (point,)
+        self.repository.public_point = point
 
         result = self.service.get_public_help_point(point.id)
 
@@ -797,14 +879,181 @@ class HelpPointServiceTests(unittest.TestCase):
         self.assertEqual(result.coordinator_contact, point.coordinator_contact)
         public_fields = {field.name for field in dataclasses.fields(result)}
         self.assertNotIn("admin_token", public_fields)
+        self.assertEqual(self.repository.public_point_query_id, point.id)
 
     def test_returns_none_when_public_help_point_is_missing_or_inactive(self) -> None:
         point = self.service.create_help_point(self.command()).point
         inactive_point = self.service.deactivate_help_point(point, point.admin_token)
-        self.repository.active_points = (inactive_point,)
 
         self.assertIsNone(self.service.get_public_help_point(uuid4()))
+        self.repository.public_point = inactive_point
         self.assertIsNone(self.service.get_public_help_point(inactive_point.id))
+
+    def test_public_home_cache_becomes_stale_after_exactly_five_minutes(self) -> None:
+        now = [1_000.0]
+        service = HelpPointService(
+            self.repository,
+            self.location_catalog,
+            cache_clock=lambda: now[0],
+        )
+        point = service.create_help_point(self.command()).point
+        public_point = service.to_public(point)
+        categories = {"Agua": self.categories[0]}
+
+        service.store_public_home((public_point,), categories)
+
+        fresh = service.get_cached_public_home()
+        self.assertEqual(fresh.points, (public_point,))
+        self.assertEqual(dict(fresh.categories), categories)
+        self.assertFalse(fresh.stale)
+
+        now[0] += 300.0
+        stale = service.get_cached_public_home()
+        self.assertTrue(stale.stale)
+
+    def test_storing_public_home_seeds_detail_cache_with_copied_categories(self) -> None:
+        point = self.service.create_help_point(self.command()).point
+        public_point = self.service.to_public(point)
+        categories = {"Agua": self.categories[0]}
+
+        self.service.store_public_home((public_point,), categories)
+        categories["Medicinas"] = self.categories[1]
+
+        cached = self.service.get_cached_public_help_point(point.id)
+        self.assertEqual(cached.point, public_point)
+        self.assertEqual(dict(cached.categories), {"Agua": self.categories[0]})
+        self.assertFalse(cached.stale)
+
+    def test_successful_public_write_invalidates_cached_home_and_details(self) -> None:
+        point = self.service.create_help_point(self.command()).point
+        public_point = self.service.to_public(point)
+        self.service.store_public_home(
+            (public_point,),
+            {"Agua": self.categories[0]},
+        )
+
+        self.service.deactivate_help_point(point, point.admin_token)
+
+        self.assertIsNone(self.service.get_cached_public_home())
+        self.assertIsNone(self.service.get_cached_public_help_point(point.id))
+
+    def test_failed_detail_refresh_preserves_last_known_stale_value(self) -> None:
+        now = [1_000.0]
+        service = HelpPointService(
+            self.repository,
+            self.location_catalog,
+            cache_clock=lambda: now[0],
+        )
+        point = service.create_help_point(self.command()).point
+        public_point = service.to_public(point)
+        service.store_public_home((public_point,), {"Agua": self.categories[0]})
+        now[0] += 301.0
+
+        def fail(_point_id):
+            raise RuntimeError("database unavailable")
+
+        self.repository.get_active_help_point_by_id = fail
+        with self.assertRaisesRegex(RuntimeError, "database unavailable"):
+            service.refresh_public_help_point(point.id)
+
+        cached = service.get_cached_public_help_point(point.id)
+        self.assertEqual(cached.point, public_point)
+        self.assertTrue(cached.stale)
+
+    def test_detail_refresh_queries_point_directly_and_caches_categories(self) -> None:
+        point = self.service.create_help_point(self.command()).point
+        self.repository.public_point = point
+        self.repository.categories = {"Agua": self.categories[0]}
+
+        refreshed = self.service.refresh_public_help_point(point.id)
+
+        self.assertEqual(refreshed.point.id, point.id)
+        self.assertEqual(dict(refreshed.categories), self.repository.categories)
+        self.assertFalse(refreshed.stale)
+        self.assertEqual(self.repository.public_point_query_id, point.id)
+        self.assertEqual(
+            self.service.get_cached_public_help_point(point.id),
+            refreshed,
+        )
+
+    def test_concurrent_cold_detail_refreshes_share_one_repository_query(self) -> None:
+        point = self.service.create_help_point(self.command()).point
+        self.repository.categories = {"Agua": self.categories[0]}
+        query_started = threading.Event()
+        release_query = threading.Event()
+        query_count = 0
+
+        def blocking_query(point_id):
+            nonlocal query_count
+            query_count += 1
+            self.repository.public_point_query_id = point_id
+            query_started.set()
+            release_query.wait(timeout=1.0)
+            return point
+
+        self.repository.get_active_help_point_by_id = blocking_query
+        results = []
+        first = threading.Thread(
+            target=lambda: results.append(self.service.refresh_public_help_point(point.id))
+        )
+        second = threading.Thread(
+            target=lambda: results.append(self.service.refresh_public_help_point(point.id))
+        )
+
+        first.start()
+        self.assertTrue(query_started.wait(timeout=1.0))
+        second.start()
+        release_query.set()
+        first.join(timeout=1.0)
+        second.join(timeout=1.0)
+
+        self.assertFalse(first.is_alive())
+        self.assertFalse(second.is_alive())
+        self.assertEqual(query_count, 1)
+        self.assertEqual([result.point.id for result in results], [point.id, point.id])
+
+    def test_detail_refresh_token_cannot_repopulate_cache_after_invalidation(self) -> None:
+        cache = PublicHelpPointCache()
+        service = HelpPointService(
+            self.repository,
+            self.location_catalog,
+            public_cache=cache,
+        )
+        point = service.create_help_point(self.command()).point
+        public_point = service.to_public(point)
+        token = cache.begin_point_refresh(point.id)
+
+        cache.clear()
+        committed, result = cache.finish_point_refresh(
+            token,
+            public_point,
+            {"Agua": self.categories[0]},
+        )
+
+        self.assertFalse(committed)
+        self.assertEqual(result.point, public_point)
+        self.assertIsNone(cache.get_point(point.id))
+
+    def test_commitment_invalidates_cache_before_failed_follow_up_read(self) -> None:
+        point = self.service.create_help_point(self.command()).point
+        public_point = self.service.to_public(point)
+        self.service.store_public_home((public_point,), {"Agua": self.categories[0]})
+        self.repository.point_by_need_id = point
+        original_get = self.repository.get_help_point_by_need_id
+        calls = 0
+
+        def fail_second_read(need_id):
+            nonlocal calls
+            calls += 1
+            return original_get(need_id) if calls == 1 else None
+
+        self.repository.get_help_point_by_need_id = fail_second_read
+
+        with self.assertRaisesRegex(ValueError, "need not found"):
+            self.service.create_commitment(point.needs[0].id, "Ana", None)
+
+        self.assertIsNone(self.service.get_cached_public_home())
+        self.assertIsNone(self.service.get_cached_public_help_point(point.id))
 
     def test_gets_managed_point_only_when_token_identifies_a_point(self) -> None:
         point = self.service.create_help_point(self.command()).point

@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import asyncio
 import unittest
 from datetime import UTC, datetime
 from pathlib import Path
-from unittest.mock import patch
-from uuid import uuid4
+from types import SimpleNamespace
+from unittest.mock import ANY, patch
+from uuid import UUID, uuid4
 
 from backend.domain.models import (
     AffectedArea,
@@ -22,6 +24,7 @@ from frontend.pages.home import (
     filter_public_help_points,
     latest_activity_text,
     location_filter_options,
+    load_public_help_points_progressively,
     matches_search_query,
 )
 
@@ -104,6 +107,7 @@ class RecordingElement:
         self.options = kwargs.get("options", args[0] if args else None)
         self.on_change = kwargs.get("on_change")
         self.update_calls = 0
+        self.clear_calls = 0
         self.classes_value = ""
         self.props_value = ""
         self.enabled = True
@@ -125,6 +129,7 @@ class RecordingElement:
     def enable(self): self.enable_calls += 1; self.enabled = True
     def disable(self): self.disable_calls += 1; self.enabled = False
     def clear(self):
+        self.clear_calls += 1
         def remove_descendants(element):
             for child in tuple(element.children):
                 remove_descendants(child)
@@ -134,6 +139,7 @@ class RecordingElement:
 
         remove_descendants(self)
     def update(self): self.update_calls += 1
+    def set_text(self, value): self.args = (value,); return self
 
 
 class RecordingUi:
@@ -154,6 +160,402 @@ class RecordingUi:
     def button(self, *args, **kwargs): return self._record("button", *args, **kwargs)
     def link(self, *args, **kwargs): return self._record("link", *args, **kwargs)
     def icon(self, *args, **kwargs): return self._record("icon", *args, **kwargs)
+    def timer(self, *args, **kwargs): return self._record("timer", *args, **kwargs)
+
+
+class ProgressiveHomeLoadingTests(unittest.TestCase):
+    @staticmethod
+    def point(created_at: datetime, suffix: int) -> PublicHelpPoint:
+        return PublicHelpPoint(
+            id=UUID(f"00000000-0000-0000-0000-{suffix:012d}"),
+            name=f"Punto {suffix}",
+            description="Apoyo",
+            affected_areas=(AffectedArea(department="Chocó", city="Quibdó"),),
+            locations=(
+                HelpPointLocation(
+                    id=UUID(f"10000000-0000-0000-0000-{suffix:012d}"),
+                    address="Calle 5",
+                    city="Quibdó",
+                    department="Chocó",
+                    latitude=5.69 + suffix / 10_000,
+                    longitude=-76.66,
+                ),
+            ),
+            coordinator_name="Ana",
+            coordinator_contact="Contacto",
+            active=True,
+            needs=(),
+            category=HelpPointCategory.RESCUE_OPERATIONS,
+            created_at=created_at,
+            updated_at=created_at,
+        )
+
+    def test_loads_every_page_automatically_with_stable_cursor(self) -> None:
+        newest = self.point(datetime(2026, 8, 13, 12, tzinfo=UTC), 3)
+        middle = self.point(datetime(2026, 8, 13, 11, tzinfo=UTC), 2)
+        oldest = self.point(datetime(2026, 8, 13, 10, tzinfo=UTC), 1)
+        calls = []
+        pages = ((newest, middle), (oldest,))
+
+        def list_page(*, snapshot_created_at, before_created_at, before_id, limit):
+            calls.append((snapshot_created_at, before_created_at, before_id, limit))
+            return pages[len(calls) - 1]
+
+        progress = []
+        result = asyncio.run(
+            load_public_help_points_progressively(
+                lambda: (datetime(2026, 8, 13, 13, tzinfo=UTC), 3),
+                list_page,
+                lambda page, loaded_count, total, complete: progress.append(
+                    (
+                        tuple(point.id for point in page),
+                        loaded_count,
+                        total,
+                        complete,
+                    )
+                ),
+                batch_size=2,
+            )
+        )
+
+        self.assertEqual(result, (newest, middle, oldest))
+        snapshot = calls[0][0]
+        self.assertEqual(calls, [
+            (snapshot, None, None, 2),
+            (snapshot, middle.created_at, middle.id, 2),
+        ])
+        self.assertEqual(progress[-1], ((oldest.id,), 3, 3, True))
+        self.assertTrue(
+            all(not complete for _page, _loaded, _total, complete in progress[:-1])
+        )
+
+    def test_times_out_a_database_operation_instead_of_loading_forever(self) -> None:
+        release = asyncio.Event()
+
+        async def never_finishes(*_args, **_kwargs):
+            await release.wait()
+
+        with patch.object(home.asyncio, "to_thread", side_effect=never_finishes):
+            with self.assertRaises(TimeoutError):
+                asyncio.run(
+                    load_public_help_points_progressively(
+                        lambda: (datetime(2026, 8, 13, 13, tzinfo=UTC), 1),
+                        lambda **_kwargs: (),
+                        lambda *_args: None,
+                        operation_timeout_seconds=0.001,
+                    )
+                )
+
+    def test_each_page_is_appended_without_rebuilding_existing_results_or_map(self) -> None:
+        class RecordingMarker:
+            def __init__(self):
+                self.method_calls = []
+
+            def run_method(self, *args):
+                self.method_calls.append(args)
+
+        class RecordingMap:
+            def __init__(self):
+                self.markers = []
+
+            def marker(self, *, latlng):
+                marker = RecordingMarker()
+                marker.latlng = latlng
+                self.markers.append(marker)
+                return marker
+
+        fake_ui = RecordingUi()
+        map_element = RecordingMap()
+        created_at = datetime(2026, 8, 13, 12, tzinfo=UTC)
+        points = tuple(self.point(created_at, suffix) for suffix in range(1, 26))
+        pages = (points[:24], points[24:])
+        page_calls = []
+        intermediate_visible_counts = []
+        stored = []
+
+        def list_page(**kwargs):
+            page_calls.append(kwargs)
+            if len(page_calls) == 2:
+                intermediate_visible_counts.append(
+                    (
+                        sum(
+                            element.kind == "link"
+                            and str(element.kwargs.get("target", "")).startswith(
+                                "/puntos/"
+                            )
+                            for element in fake_ui.elements
+                        ),
+                        len(map_element.markers),
+                    )
+                )
+            return pages[len(page_calls) - 1]
+
+        original_ui = home.ui
+        home.ui = fake_ui
+        try:
+            with patch.object(
+                home,
+                "render_help_point_map",
+                return_value=map_element,
+            ) as render_map:
+                home.render_home(
+                    (),
+                    {},
+                    lambda: AFFECTED_DEPARTMENTS,
+                    list_localities,
+                    list_active_categories=lambda: {},
+                    open_public_help_points_snapshot=lambda: (created_at, 25),
+                    list_public_help_points_page=list_page,
+                    get_cached_public_home=lambda: None,
+                    begin_public_home_refresh=lambda: "token",
+                    finish_public_home_refresh=lambda token, loaded, loaded_categories: stored.append(
+                        (tuple(loaded), loaded_categories)
+                    ) is None,
+                    abort_public_home_refresh=lambda _token: None,
+                    wait_for_cached_public_home=lambda **_kwargs: None,
+                )
+                results = next(
+                    element
+                    for element in fake_ui.elements
+                    if element.kind == "column" and element.classes_value == "w-full gap-3"
+                )
+                timer = next(
+                    element for element in fake_ui.elements if element.kind == "timer"
+                )
+
+                asyncio.run(timer.args[1]())
+
+                point_links = [
+                    element
+                    for element in fake_ui.elements
+                    if element.kind == "link"
+                    and str(element.kwargs.get("target", "")).startswith("/puntos/")
+                ]
+                self.assertEqual(len(page_calls), 2)
+                self.assertEqual(intermediate_visible_counts, [(24, 24)])
+                self.assertEqual(len(point_links), 25)
+                self.assertEqual(len(map_element.markers), 25)
+                self.assertEqual(render_map.call_count, 1)
+                self.assertEqual(results.clear_calls, 1)
+                self.assertFalse(
+                    any(
+                        element.kind == "label"
+                        and element.args
+                        == ("Estamos cargando los puntos de ayuda…",)
+                        for element in fake_ui.elements
+                    )
+                )
+                self.assertFalse(
+                    any(
+                        element.kind == "button"
+                        and element.args == ("Mostrar más puntos",)
+                        for element in fake_ui.elements
+                    )
+                )
+                search = next(
+                    element for element in fake_ui.elements if element.kind == "input"
+                )
+                department = next(
+                    element
+                    for element in fake_ui.elements
+                    if element.kind == "select"
+                    and element.kwargs["label"] == "Departamento"
+                )
+                self.assertTrue(search.enabled)
+                self.assertTrue(department.enabled)
+                self.assertEqual(stored, [(points, {})])
+        finally:
+            home.ui = original_ui
+
+    def test_progressive_render_schedules_loading_after_initial_page_render(self) -> None:
+        fake_ui = RecordingUi()
+        page_calls = []
+        category_calls = []
+        original_ui = home.ui
+        home.ui = fake_ui
+        try:
+            with patch.object(home, "render_help_point_map"):
+                home.render_home(
+                    (),
+                    {},
+                    lambda: AFFECTED_DEPARTMENTS,
+                    list_localities,
+                    list_active_categories=lambda: category_calls.append(True) or {"Agua": uuid4()},
+                    open_public_help_points_snapshot=lambda: (
+                        datetime(2026, 8, 13, 13, tzinfo=UTC),
+                        0,
+                    ),
+                    list_public_help_points_page=lambda **kwargs: page_calls.append(
+                        kwargs
+                    )
+                    or (),
+                )
+                timers = [
+                    element for element in fake_ui.elements if element.kind == "timer"
+                ]
+                self.assertEqual(len(timers), 1)
+                self.assertEqual(category_calls, [])
+                self.assertEqual(timers[0].args[0], 0)
+                self.assertTrue(timers[0].kwargs["once"])
+                labels = [
+                    element.args[0]
+                    for element in fake_ui.elements
+                    if element.kind == "label"
+                ]
+                self.assertIn("Cargando puntos…", labels)
+                search = next(
+                    element for element in fake_ui.elements if element.kind == "input"
+                )
+                department = next(
+                    element
+                    for element in fake_ui.elements
+                    if element.kind == "select"
+                    and element.kwargs["label"] == "Departamento"
+                )
+                self.assertFalse(search.enabled)
+                self.assertFalse(department.enabled)
+                self.assertFalse(
+                    any(
+                        element.kind == "row"
+                        and "cursor-pointer" in element.classes_value
+                        for element in fake_ui.elements
+                    )
+                )
+                self.assertFalse(
+                    any(
+                        element.kind == "label"
+                        and element.args == ("Todavía no hay puntos de ayuda activos.",)
+                        for element in fake_ui.elements
+                    )
+                )
+                self.assertFalse(
+                    any(
+                        element.kind == "button"
+                        and element.args == ("Mostrar más puntos",)
+                        for element in fake_ui.elements
+                    )
+                )
+
+                asyncio.run(timers[0].args[1]())
+
+                self.assertEqual(category_calls, [True])
+                self.assertEqual(
+                    page_calls,
+                    [
+                        {
+                            "snapshot_created_at": ANY,
+                            "before_created_at": None,
+                            "before_id": None,
+                            "limit": 24,
+                        }
+                    ],
+                )
+                self.assertTrue(search.enabled)
+                self.assertTrue(department.enabled)
+        finally:
+            home.ui = original_ui
+
+    def test_fresh_cached_home_renders_immediately_without_database_loading(self) -> None:
+        fake_ui = RecordingUi()
+        point = self.point(datetime(2026, 8, 13, 12, tzinfo=UTC), 1)
+        database_calls = []
+        original_ui = home.ui
+        home.ui = fake_ui
+        try:
+            with patch.object(home, "render_help_point_map") as render_map:
+                home.render_home(
+                    (),
+                    {},
+                    lambda: AFFECTED_DEPARTMENTS,
+                    list_localities,
+                    list_active_categories=lambda: database_calls.append("categories") or {},
+                    open_public_help_points_snapshot=lambda: database_calls.append("snapshot")
+                    or (datetime(2026, 8, 13, 13, tzinfo=UTC), 1),
+                    list_public_help_points_page=lambda **_kwargs: database_calls.append("page")
+                    or (point,),
+                    get_cached_public_home=lambda: SimpleNamespace(
+                        points=(point,), categories={}, stale=False
+                    ),
+                    begin_public_home_refresh=lambda: "token",
+                    finish_public_home_refresh=lambda *_args: True,
+                    abort_public_home_refresh=lambda _token: None,
+                    wait_for_cached_public_home=lambda **_kwargs: None,
+                )
+
+                self.assertEqual(database_calls, [])
+                self.assertFalse(
+                    any(element.kind == "timer" for element in fake_ui.elements)
+                )
+                self.assertEqual(render_map.call_args.args[0], (point,))
+                self.assertTrue(
+                    any(
+                        element.kind == "link"
+                        and element.kwargs.get("target") == f"/puntos/{point.id}"
+                        for element in fake_ui.elements
+                    )
+                )
+        finally:
+            home.ui = original_ui
+
+    def test_stale_cached_home_stays_interactive_while_refreshing_in_background(self) -> None:
+        fake_ui = RecordingUi()
+        stale_point = self.point(datetime(2026, 8, 13, 11, tzinfo=UTC), 1)
+        fresh_point = self.point(datetime(2026, 8, 13, 12, tzinfo=UTC), 2)
+        stored = []
+        original_ui = home.ui
+        home.ui = fake_ui
+        try:
+            with patch.object(home, "render_help_point_map"):
+                home.render_home(
+                    (),
+                    {},
+                    lambda: AFFECTED_DEPARTMENTS,
+                    list_localities,
+                    list_active_categories=lambda: {},
+                    open_public_help_points_snapshot=lambda: (
+                        datetime(2026, 8, 13, 13, tzinfo=UTC),
+                        1,
+                    ),
+                    list_public_help_points_page=lambda **_kwargs: (fresh_point,),
+                    get_cached_public_home=lambda: SimpleNamespace(
+                        points=(stale_point,), categories={}, stale=True
+                    ),
+                    begin_public_home_refresh=lambda: "token",
+                    finish_public_home_refresh=lambda _token, points, categories: stored.append(
+                        (tuple(points), categories)
+                    ) is None,
+                    abort_public_home_refresh=lambda _token: None,
+                    wait_for_cached_public_home=lambda **_kwargs: None,
+                )
+                search = next(
+                    element for element in fake_ui.elements if element.kind == "input"
+                )
+                department = next(
+                    element
+                    for element in fake_ui.elements
+                    if element.kind == "select"
+                    and element.kwargs["label"] == "Departamento"
+                )
+                self.assertTrue(search.enabled)
+                self.assertTrue(department.enabled)
+                self.assertTrue(
+                    any(
+                        element.kind == "link"
+                        and element.kwargs.get("target") == f"/puntos/{stale_point.id}"
+                        for element in fake_ui.elements
+                    )
+                )
+                timer = next(
+                    element for element in fake_ui.elements if element.kind == "timer"
+                )
+
+                asyncio.run(timer.args[1]())
+
+                self.assertEqual(stored, [((fresh_point,), {})])
+                self.assertTrue(search.enabled)
+                self.assertTrue(department.enabled)
+        finally:
+            home.ui = original_ui
 
 
 class PublicHelpPointFilteringTests(unittest.TestCase):
